@@ -1,0 +1,130 @@
+[
+  {
+    "id": "S-01",
+    "cat": "惠农政策",
+    "name": "农机购置补贴",
+    "desc": "申请条件、材料与流程",
+    "policyId": "P-01",
+    "hot": true
+  },
+  {
+    "id": "S-02",
+    "cat": "惠农政策",
+    "name": "粮食补贴查询",
+    "desc": "补贴标准与发放查询",
+    "policyId": "P-02",
+    "hot": true
+  },
+  {
+    "id": "S-03",
+    "cat": "惠农政策",
+    "name": "农业保险投保",
+    "desc": "水稻、茶叶等险种",
+    "policyId": null,
+    "hot": false
+  },
+  {
+    "id": "S-04",
+    "cat": "民生政务",
+    "name": "宅基地和建房",
+    "desc": "申请条件与审批流程",
+    "policyId": "P-04",
+    "hot": true
+  },
+  {
+    "id": "S-05",
+    "cat": "民生政务",
+    "name": "高龄津贴申领",
+    "desc": "80 周岁以上老人",
+    "policyId": "P-07",
+    "hot": false
+  },
+  {
+    "id": "S-06",
+    "cat": "民生政务",
+    "name": "居住证明开具",
+    "desc": "村级代办，当场办结",
+    "policyId": null,
+    "hot": false
+  },
+  {
+    "id": "S-07",
+    "cat": "医保社保",
+    "name": "医保报销比例",
+    "desc": "住院、门诊报销政策",
+    "policyId": "P-03",
+    "hot": true
+  },
+  {
+    "id": "S-08",
+    "cat": "医保社保",
+    "name": "养老金资格认证",
+    "desc": "手机刷脸，每年一次",
+    "policyId": "P-05",
+    "hot": true
+  },
+  {
+    "id": "S-09",
+    "cat": "医保社保",
+    "name": "慢性病用药备案",
+    "desc": "高血压、糖尿病等",
+    "policyId": null,
+    "hot": false
+  },
+  {
+    "id": "S-10",
+    "cat": "便民服务",
+    "name": "水电费代缴",
+    "desc": "村便民服务站代收",
+    "policyId": null,
+    "hot": false
+  },
+  {
+    "id": "S-11",
+    "cat": "便民服务",
+    "name": "快递代收代寄",
+    "desc": "村快递驿站",
+    "policyId": null,
+    "hot": false
+  },
+  {
+    "id": "S-12",
+    "cat": "便民服务",
+    "name": "上门代办预约",
+    "desc": "行动不便人群优先",
+    "policyId": null,
+    "hot": true
+  },
+  {
+    "id": "S-13",
+    "cat": "乡村建设",
+    "name": "道路建设申请",
+    "desc": "村内道路硬化与维修",
+    "policyId": "P-06",
+    "hot": false
+  },
+  {
+    "id": "S-14",
+    "cat": "乡村建设",
+    "name": "危房改造补助",
+    "desc": "C、D 级危房改造",
+    "policyId": "P-08",
+    "hot": false
+  },
+  {
+    "id": "S-15",
+    "cat": "社会救助",
+    "name": "低保申请",
+    "desc": "家庭收入与财产核对",
+    "policyId": null,
+    "hot": false
+  },
+  {
+    "id": "S-16",
+    "cat": "社会救助",
+    "name": "临时救助",
+    "desc": "突发困难家庭救助",
+    "policyId": null,
+    "hot": false
+  }
+]

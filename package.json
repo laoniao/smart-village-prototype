@@ -1,0 +1,23 @@
+{
+  "name": "smart-village-prototype",
+  "version": "1.0.0",
+  "private": true,
+  "description": "智慧乡村地图与便民服务原型（演示用，全部为脱敏模拟数据）",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "test": "node tools/api-test.js",
+    "gen:data": "python tools/gen-data.py",
+    "test:ui": "node tools/ui-test.js",
+    "shots": "node tools/shots.js",
+    "gen:footprints": "python tools/extract-footprints.py"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "leaflet": "^1.9.4"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
+  }
+}

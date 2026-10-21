@@ -1,0 +1,8 @@
+node_modules/
+_tiles/
+server.log
+*.log
+data/runtime/
+.workbuddy/
+.DS_Store
+Thumbs.db

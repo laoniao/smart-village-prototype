@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>智慧乡村地图与便民服务 · 原型入口</title>
+<style>
+  :root { --brand:#1d5fd0; --green:#178a56; --ink:#16233a; --sub:#63748c; --line:#e3eaf5; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; font-family: "PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background: radial-gradient(1200px 600px at 15% 0%, #e8f0fd 0%, #f5f8fc 40%, #f7faf8 100%);
+    color: var(--ink); display: flex; align-items: center; justify-content: center; padding: 40px 20px;
+  }
+  .wrap { width: 100%; max-width: 980px; }
+  .top { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .logo { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+    background: linear-gradient(140deg,#2a6fd8,#123b8f); color: #fff; box-shadow: 0 8px 20px rgba(29,95,208,.25); }
+  h1 { font-size: 23px; margin: 0; letter-spacing: .5px; }
+  .sub { color: var(--sub); font-size: 13px; margin: 6px 0 26px; line-height: 1.9; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .card {
+    background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 22px;
+    box-shadow: 0 10px 30px rgba(20,40,80,.06); text-align: left; text-decoration: none; color: inherit;
+    transition: transform .18s, box-shadow .18s; display: block;
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 16px 40px rgba(20,40,80,.12); }
+  .card .tag { display: inline-block; font-size: 11px; padding: 3px 9px; border-radius: 20px; margin-bottom: 12px; }
+  .card h2 { font-size: 18px; margin: 0 0 8px; }
+  .card p { font-size: 12.5px; color: var(--sub); line-height: 1.9; margin: 0 0 16px; }
+  .card ul { margin: 0; padding-left: 16px; font-size: 12px; color: #4a5c74; line-height: 2; }
+  .go { display: inline-flex; align-items: center; gap: 6px; margin-top: 18px; font-size: 13px; font-weight: 600; }
+  .blue { color: var(--brand); } .green { color: var(--green); }
+  .tag.blue { background: #eaf1ff; color: var(--brand); }
+  .tag.green { background: #eaf6f0; color: var(--green); }
+  .foot { margin-top: 26px; font-size: 11.5px; color: #8fa0b6; line-height: 1.9; }
+  .foot b { color: #5c6f88; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } h1 { font-size: 19px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="logo">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9.5 21v-6h5v6"/>
+      </svg>
+    </div>
+    <div>
+      <h1>智慧乡村地图与便民服务原型</h1>
+      <div style="font-size:11.5px;color:#93a1b5;letter-spacing:2px;margin-top:3px">SMART VILLAGE MAP &amp; PUBLIC SERVICE PROTOTYPE</div>
+    </div>
+  </div>
+  <div class="sub">
+    本原型包含“地图信息展示网页端”与“便民服务小程序端”两部分，数据均为脱敏模拟数据；<br>
+    农户点位依据卫星影像中的真实房屋位置生成，可在实际地图上查看与定位。
+  </div>
+
+  <div class="grid">
+    <a class="card" href="/web/">
+      <span class="tag blue">网页端 · 治理平台</span>
+      <h2>地图信息展示平台</h2>
+      <p>面向村委会与管理人员的桌面端，提供村情概览、村户一张图、政策智能问答与基础数据管理。</p>
+      <ul>
+        <li>综合态势：统计指标、村域地图、实时预警与趋势图</li>
+        <li>村户一张图：真实地图底图上的 428 户点位、图层控制与筛选</li>
+        <li>户详情卡：脱敏信息 + 权限控制的完整台账</li>
+        <li>基础数据管理：网点、通知、事件维护</li>
+      </ul>
+      <span class="go blue">进入管理端 →</span>
+    </a>
+
+    <a class="card" href="/app/">
+      <span class="tag green">小程序端 · 村民服务</span>
+      <h2>乡村便民助手</h2>
+      <p>面向村民的手机端原型，提供普通版与长辈版两套界面，支持文字与语音咨询、政策指南、服务网点与反馈。</p>
+      <ul>
+        <li>首页：普通版 / 长辈版一键切换</li>
+        <li>服务分类、通知公告、服务网点地图</li>
+        <li>AI 对话与结构化政策答复</li>
+        <li>收藏记录、意见反馈、大字模式</li>
+      </ul>
+      <span class="go green">进入小程序 →</span>
+    </a>
+  </div>
+
+  <div class="foot">
+    <b>运行说明：</b>请通过 <code>npm start</code> 启动本地服务后访问本页（默认 http://localhost:5178 ）。<br>
+    <b>数据说明：</b>地图底图为公开在线地图服务（Esri 影像 / 高德矢量），仅用于原型演示；姓名、电话、户号、身份证号等均为虚构或脱敏内容，不涉及真实个人信息。
+  </div>
+</div>
+</body>
+</html>

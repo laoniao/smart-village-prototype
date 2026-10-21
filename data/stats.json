@@ -1,0 +1,70 @@
+{
+  "village": "示范村",
+  "households": 428,
+  "population": 672,
+  "outflow": 156,
+  "care": 23,
+  "cameras": 12,
+  "servicePoints": 5,
+  "pendingEvents": 3,
+  "householdsDelta": 2.3,
+  "populationDelta": 1.1,
+  "cameraOnline": 11,
+  "cameraOnlineRate": 91.7,
+  "monthly": [
+    {
+      "month": "5月",
+      "resident": 651,
+      "floating": 44,
+      "households": 419,
+      "newHouseholds": 5,
+      "events": 26,
+      "pending": 4
+    },
+    {
+      "month": "6月",
+      "resident": 658,
+      "floating": 51,
+      "households": 421,
+      "newHouseholds": 3,
+      "events": 31,
+      "pending": 5
+    },
+    {
+      "month": "7月",
+      "resident": 664,
+      "floating": 58,
+      "households": 423,
+      "newHouseholds": 4,
+      "events": 38,
+      "pending": 6
+    },
+    {
+      "month": "8月",
+      "resident": 667,
+      "floating": 62,
+      "households": 425,
+      "newHouseholds": 2,
+      "events": 34,
+      "pending": 5
+    },
+    {
+      "month": "9月",
+      "resident": 669,
+      "floating": 60,
+      "households": 427,
+      "newHouseholds": 3,
+      "events": 29,
+      "pending": 4
+    },
+    {
+      "month": "10月",
+      "resident": 672,
+      "floating": 56,
+      "households": 428,
+      "newHouseholds": 2,
+      "events": 22,
+      "pending": 3
+    }
+  ]
+}

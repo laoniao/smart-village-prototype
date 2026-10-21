@@ -1,0 +1,98 @@
+[
+  {
+    "id": "CAM-01",
+    "name": "村口主路东",
+    "lat": 30.235016,
+    "lng": 120.115773,
+    "status": "online",
+    "channel": "CH01"
+  },
+  {
+    "id": "CAM-02",
+    "name": "村口主路西",
+    "lat": 30.234645,
+    "lng": 120.116638,
+    "status": "online",
+    "channel": "CH02"
+  },
+  {
+    "id": "CAM-03",
+    "name": "文化广场",
+    "lat": 30.236162,
+    "lng": 120.116813,
+    "status": "online",
+    "channel": "CH03"
+  },
+  {
+    "id": "CAM-04",
+    "name": "便民服务站",
+    "lat": 30.234713,
+    "lng": 120.117202,
+    "status": "online",
+    "channel": "CH04"
+  },
+  {
+    "id": "CAM-05",
+    "name": "小学路口",
+    "lat": 30.233237,
+    "lng": 120.114637,
+    "status": "online",
+    "channel": "CH05"
+  },
+  {
+    "id": "CAM-06",
+    "name": "河道北岸",
+    "lat": 30.236084,
+    "lng": 120.117289,
+    "status": "online",
+    "channel": "CH06"
+  },
+  {
+    "id": "CAM-07",
+    "name": "三组路口",
+    "lat": 30.233231,
+    "lng": 120.114605,
+    "status": "online",
+    "channel": "CH07"
+  },
+  {
+    "id": "CAM-08",
+    "name": "五组桥头",
+    "lat": 30.234827,
+    "lng": 120.113273,
+    "status": "online",
+    "channel": "CH08"
+  },
+  {
+    "id": "CAM-09",
+    "name": "养老中心",
+    "lat": 30.233899,
+    "lng": 120.113461,
+    "status": "online",
+    "channel": "CH09"
+  },
+  {
+    "id": "CAM-10",
+    "name": "快递驿站",
+    "lat": 30.233995,
+    "lng": 120.112971,
+    "status": "offline",
+    "channel": "CH10"
+  },
+  {
+    "id": "CAM-11",
+    "name": "停车场",
+    "lat": 30.236843,
+    "lng": 120.117106,
+    "status": "online",
+    "channel": "CH11"
+  },
+  {
+    "id": "CAM-12",
+    "name": "茶山入口",
+    "lat": 30.233406,
+    "lng": 120.113108,
+    "status": "online",
+    "channel": "CH12"
+  }
+]
