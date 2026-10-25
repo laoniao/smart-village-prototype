@@ -86,20 +86,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(1800);
   await page.screenshot({ path: path.join(OUT, 'web-10-integration.png') });
 
+  // 设备编辑表单（说明台账可维护）
+  await page.locator('#camDevList [data-cam-edit]').first().click();
+  await sleep(900);
+  await page.screenshot({ path: path.join(OUT, 'web-12-camera-form.png') });
+  await page.click('.modal [data-cancel]');
+  await sleep(400);
+
   // 摄像头面板（地图内）
-  await page.click('[data-page="households"]');
-  await sleep(2600);
-  await page.waitForFunction(() => {
-    const imgs = [...document.querySelectorAll('#hhMap img.leaflet-tile')];
-    return imgs.length > 0 && imgs.every((i) => i.complete && i.naturalWidth > 0);
-  }, null, { timeout: 25000 }).catch(() => {});
-  await sleep(600);
-  await page.click('#camDevList .cam-dev').catch(async () => {
-    await page.click('[data-page="integration"]');
-    await sleep(1400);
-    await page.click('#camDevList .cam-dev');
-  });
-  await sleep(3200);
+  await page.locator('#camDevList .cam-dev').first().click();
+  await sleep(3400);
   await page.screenshot({ path: path.join(OUT, 'web-11-camera-panel.png') });
   await page.click('#camPanel .cp-close').catch(() => {});
   await sleep(400);

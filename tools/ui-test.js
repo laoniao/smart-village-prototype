@@ -102,6 +102,31 @@ function check(name, cond, detail = '') {
   await page.locator('[data-toggle-e]').first().click();
   await sleep(700);
 
+  // 事件作废：只打标记，保留记录
+  check('事件带作废按钮', (await page.locator('[data-void-e]').count()) > 0);
+  await page.locator('[data-void-e]').first().click();
+  await sleep(500);
+  const voidDesc = await page.textContent('.modal .mbody');
+  check('作废前说明保留记录', voidDesc.indexOf('不删除记录') >= 0, '二次确认文案');
+  await page.click('.modal [data-ok]');
+  await sleep(1000);
+  check('事件状态显示已作废', (await page.locator('#adminTable tbody .st.void').count()) > 0);
+  await page.locator('[data-void-e]').first().click();
+  await sleep(500);
+  await page.click('.modal [data-ok]');
+  await sleep(1000);
+  check('已作废事件可恢复', (await page.locator('#adminTable tbody .st.void').count()) === 0);
+
+  // 农户：维护弹窗里可选「已搬迁 / 已拆除」
+  await page.click('[data-tab="households"]');
+  await sleep(800);
+  await page.locator('[data-edit-h]').first().click();
+  await sleep(500);
+  const hsOpts = await page.locator('.modal [data-k="houseStatus"] option').count();
+  check('房屋状态含搬迁与拆除', hsOpts === 5, `${hsOpts} 个可选状态`);
+  await page.click('.modal [data-cancel]');
+  await sleep(400);
+
   // ---------- 数据录入 ----------
   await page.click('[data-page="import"]');
   await sleep(1000);
@@ -110,6 +135,7 @@ function check(name, cond, detail = '') {
   check('录入类型页签', tabCount === 5, `${tabCount} 类：农户/网点/摄像头/通知/事件`);
   check('字段说明渲染', (await page.locator('#schemaFields .schema-item').count()) >= 10);
   check('单条表单渲染', (await page.locator('#impForm .f').count()) >= 10);
+  check('覆盖导入选项可见', await page.isVisible('#impReplace'), '勾选后先清空再写入');
 
   await page.click('#impSample');
   await sleep(500);
@@ -119,6 +145,16 @@ function check(name, cond, detail = '') {
   const chips = await page.locator('#impResult .imp-chip').allTextContents();
   check('批量校验返回结果', chips.length >= 3 && chips.join('').indexOf('通过') >= 0, chips.join(' / '));
   check('校验通过后可提交', !(await page.locator('#impCommit').isDisabled()));
+
+  // 覆盖导入：勾选后必须二次确认，取消则不写库
+  await page.check('#impReplace');
+  await page.click('#impCommit');
+  await sleep(700);
+  const repTitle = await page.textContent('.modal h3');
+  check('覆盖导入需二次确认', repTitle.indexOf('覆盖') >= 0, repTitle);
+  await page.click('.modal [data-cancel]');
+  await sleep(400);
+  await page.uncheck('#impReplace');
 
   await page.fill('#if_houseNo', '!!');
   await page.fill('#if_owner', '');
@@ -140,6 +176,33 @@ function check(name, cond, detail = '') {
   const devCount = await page.locator('#camDevList .cam-dev').count();
   check('摄像头设备清单', devCount === 12, `${devCount} 路`);
   check('接口清单', (await page.locator('#apiList .api-item').count()) >= 15);
+
+  // 摄像头台账：编辑 / 删除 / 新增 的界面入口
+  const editBtns = await page.locator('#camDevList [data-cam-edit]').count();
+  const delBtns = await page.locator('#camDevList [data-cam-del]').count();
+  check('设备卡带编辑与删除按钮', editBtns === devCount && delBtns === devCount, `${editBtns} 编辑 / ${delBtns} 删除`);
+
+  await page.locator('#camDevList [data-cam-edit]').first().click();
+  await sleep(700);
+  const editFields = await page.locator('.modal .mbody [data-k]').count();
+  check('编辑设备弹窗字段齐全', editFields >= 10, `${editFields} 个字段`);
+  await page.click('.modal [data-cancel]');
+  await sleep(400);
+
+  await page.click('#btnAddCam');
+  await sleep(700);
+  const addTitle = await page.textContent('.modal h3');
+  check('新增设备弹窗', addTitle.indexOf('新增') >= 0, addTitle);
+  await page.click('.modal [data-cancel]');
+  await sleep(400);
+
+  await page.locator('#camDevList [data-cam-del]').first().click();
+  await sleep(600);
+  const delDesc = await page.textContent('.modal .mbody');
+  check('删除设备二次确认', delDesc.indexOf('不可恢复') >= 0, '含设备名与编号');
+  await page.click('.modal [data-cancel]');
+  await sleep(600);
+  check('取消删除后设备仍在', (await page.locator('#camDevList .cam-dev').count()) === devCount);
 
   // 底图切换
   await page.click('[data-page="households"]');

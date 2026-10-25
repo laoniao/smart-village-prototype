@@ -367,6 +367,10 @@
           <div class="card-body">
             <textarea id="impText" class="imp-textarea" spellcheck="false" placeholder="从 Excel 复制后粘贴到此处，首行为表头。例如：&#10;户号	户主	门牌	家庭人数	房屋状态	纬度	经度&#10;A-901	王**	示范村 901 号	3	正常	30.2361	120.1158"></textarea>
             <div class="imp-actions">
+              <label class="imp-replace" title="勾选后先清空该类数据的现有记录，再写入本次内容；覆盖前会自动归档一份">
+                <input type="checkbox" id="impReplace"> 覆盖导入（先清空该类原有数据）
+              </label>
+              <span class="spacer" style="flex:1"></span>
               <button class="btn" id="impSample">填入示例</button>
               <button class="btn" id="impClear">清空</button>
               <button class="btn primary" id="impValidate">校验数据</button>
@@ -415,10 +419,11 @@
           <b>视频监控能力</b>
           <span class="spacer"></span>
           <span class="hint" id="camStatsLine"></span>
+          <button class="btn" id="btnAddCam">新增设备</button>
         </div>
         <div class="card-body">
           <div class="cap-grid" id="capList"></div>
-          <div class="sub-title">设备清单（点击可预览抓图 / 云台控制）</div>
+          <div class="sub-title">设备清单（点击卡片预览抓图 / 云台控制，右侧可编辑或删除）</div>
           <div class="cam-dev-grid" id="camDevList"></div>
         </div>
       </div>

@@ -254,7 +254,84 @@ async function req(url, opts = {}) {
     const back = (await req('/api/households?size=1')).json.data.total;
     check('导入数据可一键还原', restore.json.code === 0 && back === before, `${after} → ${back}`);
 
-    /* 16. 测试数据还原 */
+    /* 16. 台账退出与事件作废（不物理删除，只打标记） */
+    const hsRow = (await req('/api/households?size=1')).json.data.rows[0];
+    const retired = await req('/api/households/' + hsRow.id, {
+      method: 'PATCH', headers: { 'x-role': 'admin' }, body: JSON.stringify({ houseStatus: '已搬迁' }),
+    });
+    check('农户可标记已搬迁', retired.json.data.houseStatus === '已搬迁', '记录仍保留：' + retired.json.data.id);
+    const st1 = (await req('/api/households/stats')).json.data;
+    check('常住户 / 退出户分开统计', st1.retired >= 1 && st1.resident === st1.total - st1.retired, `常住户 ${st1.resident} / 退出 ${st1.retired}`);
+    const badStatus = await req('/api/households/' + hsRow.id, {
+      method: 'PATCH', headers: { 'x-role': 'admin' }, body: JSON.stringify({ houseStatus: '乱填状态' }),
+    });
+    check('非法房屋状态被拒绝', badStatus.json.code === 400, badStatus.json.message);
+    await req('/api/households/' + hsRow.id, {
+      method: 'PATCH', headers: { 'x-role': 'admin' }, body: JSON.stringify({ houseStatus: hsRow.houseStatus || '正常', members: hsRow.members, care: hsRow.care }),
+    });
+
+    const ev = (await req('/api/events')).json.data[0];
+    const voided = await req('/api/events/' + ev.id, {
+      method: 'PATCH', headers: { 'x-role': 'admin' }, body: JSON.stringify({ status: '已作废' }),
+    });
+    check('事件可作废且保留记录', voided.json.data.status === '已作废' && !!voided.json.data.voidedAt);
+    const ovAfter = (await req('/api/overview')).json.data;
+    check('作废事件不计入告警与统计', ovAfter.alerts.every((x) => x.id !== ev.id) && ovAfter.eventCount.voided >= 1);
+    const evBad = await req('/api/events/' + ev.id, {
+      method: 'PATCH', headers: { 'x-role': 'admin' }, body: JSON.stringify({ status: '瞎写' }),
+    });
+    check('非法事件状态被拒绝', evBad.json.code === 400, evBad.json.message);
+    await req('/api/events/' + ev.id, {
+      method: 'PATCH', headers: { 'x-role': 'admin' }, body: JSON.stringify({ status: ev.status }),
+    });
+
+    /* 17. 摄像头设备台账增改删 */
+    const camBefore = (await req('/api/cameras/stats')).json.data.total;
+    const camNew = await req('/api/cameras/device', {
+      method: 'POST', headers: { 'x-role': 'admin' },
+      body: JSON.stringify({
+        name: '测试卡口', deviceId: '33052100001320009998', kind: '村组路口', vendor: '海康威视',
+        protocol: 'rtsp', streamUrl: 'rtsp://10.18.11.98:554/Streaming/Channels/101',
+        resolution: '1920×1080', ptz: '否', direction: 90, radius: 60, aiTags: '车牌识别',
+        installAt: '2026-10-25', lat: 30.2362, lng: 120.1163, status: 'online',
+      }),
+    });
+    check('新增摄像头设备', camNew.json.code === 0 && !!camNew.json.data.id, camNew.json.data && camNew.json.data.id);
+    const camId = camNew.json.data.id;
+    const dupCam = await req('/api/cameras/device', {
+      method: 'POST', headers: { 'x-role': 'admin' },
+      body: JSON.stringify({ name: '重复编号', deviceId: '33052100001320009998', protocol: 'gb28181', lat: 30.23, lng: 120.11 }),
+    });
+    check('设备编号重复被拒绝', dupCam.json.code === 400, dupCam.json.message);
+    const patched = await req('/api/cameras/device/' + camId, {
+      method: 'PUT', headers: { 'x-role': 'admin' }, body: JSON.stringify({ name: '测试卡口-改名' }),
+    });
+    check('局部修改不清空其它字段', patched.json.data.name === '测试卡口-改名' && patched.json.data.protocol === 'rtsp', '协议仍为 ' + patched.json.data.protocol);
+    const camDeny = await req('/api/cameras/device/' + camId, { method: 'DELETE', headers: { 'x-role': 'grid' } });
+    check('网格员无删除设备权限', camDeny.json.code === 403);
+    const camDel = await req('/api/cameras/device/' + camId, { method: 'DELETE', headers: { 'x-role': 'admin' } });
+    check('管理员可删除设备', camDel.json.code === 0 && camDel.json.data.id === camId);
+    const camAfter = (await req('/api/cameras/stats')).json.data.total;
+    check('删除后设备数还原', camAfter === camBefore, `${camBefore} → ${camAfter}`);
+
+    /* 18. 覆盖导入策略（只做校验，不清真实数据） */
+    const repValid = await req('/api/import/points', {
+      method: 'POST', headers: { 'x-role': 'admin' },
+      body: JSON.stringify({
+        text: '网点名称,网点类型,地址,服务时间,联系电话,纬度,经度\n示范村便民服务站,便民服务,示范村文化路 1 号,08:30-17:00,0572-88880000,30.2358,120.1154',
+        mode: 'validate', strategy: 'replace',
+      }),
+    });
+    check('覆盖模式下不再拦截同名记录', repValid.json.data.valid === 1 && repValid.json.data.strategy === 'replace');
+    const repEmpty = await req('/api/import/points', {
+      method: 'POST', headers: { 'x-role': 'admin' },
+      body: JSON.stringify({ text: '网点名称,网点类型,地址,纬度,经度\n,,,,', mode: 'commit', strategy: 'replace' }),
+    });
+    check('全部行校验失败时拒绝覆盖', repEmpty.json.code === 400, repEmpty.json.message);
+    const ptsAfter = (await req('/api/service-points')).json.data.length;
+    check('被拒绝的覆盖未清空网点', ptsAfter > 0, ptsAfter + ' 条');
+
+    /* 19. 测试数据还原 */
     const reset = await req('/api/admin/reset', { method: 'POST' });
     check('清空测试期间产生的运行数据', reset.json.code === 0 && reset.json.data.reset === true);
   } catch (e) {
@@ -271,7 +348,7 @@ async function req(url, opts = {}) {
     '# 功能与接口测试记录',
     '',
     `- 测试时间：${new Date().toISOString().replace('T', ' ').slice(0, 19)}`,
-    `- 测试范围：后端接口 12 组、页面可访问性、权限控制、数据脱敏`,
+    `- 测试范围：后端接口 19 组、页面可访问性、权限控制、数据脱敏、台账删除与作废、覆盖导入策略`,
     `- 测试结果：**${pass}/${total} 通过**`,
     '',
     '| 序号 | 测试项 | 结果 | 说明 |',

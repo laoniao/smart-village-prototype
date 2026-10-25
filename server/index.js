@@ -61,6 +61,17 @@ function backupHouseholds() {
   }
 }
 
+/** 覆盖导入前把当前数据归档一份（带时间戳），出问题可人工回溯 */
+function archiveEntity(entity) {
+  const arr = db[entity] || [];
+  if (!arr.length) return null;
+  if (!fs.existsSync(RUNTIME)) fs.mkdirSync(RUNTIME, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const file = path.join(RUNTIME, `${entity}.replaced-${stamp}.json`);
+  writeJson(file, arr);
+  return file;
+}
+
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => {
@@ -89,8 +100,12 @@ app.get('/api/overview', (req, res) => {
     stats: db.stats,
     village: { name: main.name, center: main.center, boundary: main.boundary },
     villages: db.villages.map((v) => ({ id: v.id, name: v.name, center: v.center, boundary: v.boundary, isMain: !!v.isMain, households: v.households })),
-    alerts: db.events.slice().sort((a, b) => String(b.reportedAt).localeCompare(String(a.reportedAt))).slice(0, 5),
-    eventCount: { pending: db.events.filter((e) => e.status === '待处置').length, done: db.events.filter((e) => e.status === '已处置').length },
+    alerts: db.events.filter((e) => e.status !== '已作废').sort((a, b) => String(b.reportedAt).localeCompare(String(a.reportedAt))).slice(0, 5),
+    eventCount: {
+      pending: db.events.filter((e) => e.status === '待处置').length,
+      done: db.events.filter((e) => e.status === '已处置').length,
+      voided: db.events.filter((e) => e.status === '已作废').length,
+    },
     cameraOnline: db.cameras.filter((c) => c.status === 'online').length,
     cameraTotal: db.cameras.length,
   });
@@ -116,8 +131,11 @@ app.get('/api/households', (req, res) => {
 
 app.get('/api/households/stats', (req, res) => {
   const by = (k) => db.households.reduce((m, h) => ((m[h[k]] = (m[h[k]] || 0) + 1), m), {});
+  const retired = db.households.filter((h) => S.RETIRED_STATUSES.indexOf(h.houseStatus) >= 0);
   ok(res, {
     total: db.households.length,
+    resident: db.households.length - retired.length,
+    retired: retired.length,
     groups: by('group'),
     status: by('houseStatus'),
     careCount: db.households.filter((h) => h.care !== '无').length,
@@ -329,30 +347,63 @@ app.post('/api/cameras/heartbeat', (req, res) => {
 });
 
 /* 摄像头设备台账维护（管理员） */
+/** 生成不重复的 CAM-xx 编号：取已有最大序号 +1，删除后不会撞号 */
+function nextCameraId() {
+  const max = db.cameras.reduce((m, c) => {
+    const n = parseInt(String(c.id).replace(/^CAM-/, ''), 10);
+    return Number.isFinite(n) && n > m ? n : m;
+  }, 0);
+  return 'CAM-' + String(max + 1).padStart(2, '0');
+}
+
 app.post('/api/cameras/device', (req, res) => {
   if (roleOf(req) !== 'admin') return fail(res, 403, '无操作权限');
-  const { errors, value } = S.validateRow('cameras', req.body || {});
+  const body = req.body || {};
+  if (!body.streamUrl && body.protocol === 'rtsp') return fail(res, 400, 'RTSP 设备必须填写取流地址');
+  const { errors, value } = S.validateRow('cameras', body);
   if (errors.length) return fail(res, 400, errors[0].msg);
   const v = S.normalize('cameras', value);
-  const seq = db.cameras.length + 1;
-  const item = Object.assign({ id: 'CAM-' + String(seq).padStart(2, '0'), channel: 'CH' + String(seq).padStart(2, '0'), fov: 55, storageDays: 30, note: '' }, v, { lat: Number(v.lat) || 30.235, lng: Number(v.lng) || 120.1155 });
+  if (db.cameras.some((c) => String(c.deviceId) === String(v.deviceId))) return fail(res, 400, '设备编号已存在：' + v.deviceId);
+  const seq = nextCameraId().replace(/^CAM-/, '');
+  const item = Object.assign({ fov: 55, storageDays: 30, note: '' }, v, {
+    id: 'CAM-' + seq, channel: 'CH' + seq,
+    lat: Number(v.lat) || 30.235, lng: Number(v.lng) || 120.1155,
+    status: v.status || 'online',
+  });
   db.cameras.push(item); persist.cameras();
   ok(res, cameraPublic(item));
 });
+
 app.put('/api/cameras/device/:id', (req, res) => {
   if (roleOf(req) !== 'admin') return fail(res, 403, '无操作权限');
   const c = db.cameras.find((x) => x.id === req.params.id);
   if (!c) return fail(res, 404, '设备不存在');
-  const v = S.normalize('cameras', req.body || {});
+  // 局部更新：与现有值合并后再校验，避免只传几个字段时把其它字段清空
+  const patch = Object.assign({}, req.body || {});
+  // 列表接口下发的是脱敏代理地址，客户端回传时忽略，避免把代理地址存成真实取流地址
+  if (patch.streamUrl !== undefined && (patch.streamUrl === '' || String(patch.streamUrl).indexOf('/api/cameras/') === 0)) delete patch.streamUrl;
+  const merged = Object.assign({}, c, patch, { id: c.id });
+  if (merged.ptz === true || merged.ptz === false) merged.ptz = merged.ptz ? '是' : '否';
+  if (Array.isArray(merged.aiTags)) merged.aiTags = merged.aiTags.join(',');
+  const { errors, value } = S.validateRow('cameras', merged);
+  if (errors.length) return fail(res, 400, errors[0].msg);
+  const v = S.normalize('cameras', value);
+  if (db.cameras.some((x) => x.id !== c.id && String(x.deviceId) === String(v.deviceId))) {
+    return fail(res, 400, '设备编号已被其它设备占用：' + v.deviceId);
+  }
   delete v.id;
-  Object.assign(c, v);
+  Object.assign(c, v, { id: c.id });
   persist.cameras(); ok(res, cameraPublic(c));
 });
+
 app.delete('/api/cameras/device/:id', (req, res) => {
   if (roleOf(req) !== 'admin') return fail(res, 403, '无操作权限');
   const i = db.cameras.findIndex((x) => x.id === req.params.id);
-  if (i >= 0) { db.cameras.splice(i, 1); persist.cameras(); }
-  ok(res, { id: req.params.id });
+  if (i < 0) return fail(res, 404, '设备不存在');
+  const [removed] = db.cameras.splice(i, 1);
+  persist.cameras();
+  // 删除后在线率、云台数等统计随之变化，返回最新统计方便前端直接刷新
+  ok(res, { id: removed.id, name: removed.name, total: db.cameras.length });
 });
 
 app.get('/api/events', (req, res) => {
@@ -374,7 +425,16 @@ app.patch('/api/events/:id', (req, res) => {
   if (roleOf(req) !== 'admin') return fail(res, 403, '无操作权限，事件状态需管理员确认');
   const e = db.events.find((x) => x.id === req.params.id);
   if (!e) return fail(res, 404, '事件不存在');
-  if (req.body && req.body.status) e.status = req.body.status;
+  const opts = ['待处置', '处置中', '已处置', '已作废'];
+  const status = req.body && req.body.status;
+  if (!status) return fail(res, 400, '缺少 status 参数');
+  if (opts.indexOf(status) < 0) return fail(res, 400, `状态“${status}”不在可选范围内（${opts.join(' / ')}）`);
+  e.status = status;
+  // 作废保留记录（误报/重复上报），不做物理删除，便于追溯与考核口径统一
+  if (status === '已作废') e.voidedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  else delete e.voidedAt;
+  if (status === '已处置') e.resolvedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  else delete e.resolvedAt;
   persist.events();
   ok(res, e);
 });
@@ -551,7 +611,16 @@ app.patch('/api/households/:id', (req, res) => {
   const h = db.households.find((x) => x.id === req.params.id);
   if (!h) return fail(res, 404, '农户不存在');
   const { houseStatus, members, care } = req.body || {};
-  if (houseStatus) h.houseStatus = houseStatus;
+  if (houseStatus) {
+    const opts = (S.SCHEMAS.households.fields.find((f) => f.key === 'houseStatus') || {}).options || [];
+    if (opts.indexOf(houseStatus) < 0) return fail(res, 400, `房屋状态“${houseStatus}”不在可选范围内（${opts.join(' / ')}）`);
+    // 标记搬迁/拆除属于「退出台账」，不物理删除，只打标记并留时间戳，便于追溯
+    if (S.RETIRED_STATUSES.indexOf(houseStatus) >= 0 && S.RETIRED_STATUSES.indexOf(h.houseStatus) < 0) {
+      h.retiredAt = new Date().toISOString().slice(0, 10);
+    }
+    if (S.RETIRED_STATUSES.indexOf(houseStatus) < 0) delete h.retiredAt;
+    h.houseStatus = houseStatus;
+  }
   if (typeof members === 'number' && members > 0 && members < 20) h.members = members;
   if (care) h.care = care;
   h.updatedAt = new Date().toISOString().slice(0, 10);
@@ -583,15 +652,19 @@ app.get('/api/template/:entity', (req, res) => {
   ok(res, { entity: d.entity, label: d.label, csv: S.toCsv(req.params.entity), fields: d.fields });
 });
 
-/** 文本批量导入：支持从 Excel/CSV 直接粘贴，mode=validate 仅校验，mode=commit 写入 */
+/** 文本批量导入：支持从 Excel/CSV 直接粘贴，mode=validate 仅校验，mode=commit 写入
+ *  strategy=merge（默认，追加并按唯一键去重）/ replace（整表覆盖，覆盖前自动归档）
+ */
 app.post('/api/import/:entity', (req, res) => {
   if (roleOf(req) !== 'admin') return fail(res, 403, '批量导入需管理员权限');
   const entity = req.params.entity;
   if (!S.SCHEMAS[entity]) return fail(res, 404, '未知的数据类型：' + entity);
-  const { text = '', rows = null, mode = 'validate' } = req.body || {};
+  const { text = '', rows = null, mode = 'validate', strategy = 'merge' } = req.body || {};
+  const replace = strategy === 'replace';
   let list = Array.isArray(rows) ? rows : S.parseText(entity, text);
   if (!list.length) return fail(res, 400, '没有解析到数据行，请检查是否包含表头');
 
+  const store = db[entity] || [];
   const uniqueKey = S.SCHEMAS[entity].uniqueKey;
   const seen = new Set();
   const results = list.map((raw, i) => {
@@ -601,24 +674,40 @@ app.post('/api/import/:entity', (req, res) => {
       if (seen.has(uv)) errors.push({ key: uniqueKey, label: uniqueKey, msg: '本次导入中该值重复' });
       else seen.add(uv);
     }
-    if (!errors.length) {
-      const exist = (ENTITY_STORE[entity] || []).find((x) => String(x[uniqueKey]) === uv);
-      if (exist) errors.push({ key: uniqueKey, label: uniqueKey, msg: `库中已存在「${uv}」，请勿重复导入` });
+    if (!errors.length && !replace) {
+      const exist = store.find((x) => String(x[uniqueKey]) === uv);
+      if (exist) errors.push({ key: uniqueKey, label: uniqueKey, msg: `库中已存在「${uv}」，请勿重复导入（如需整表替换请勾选「覆盖导入」）` });
     }
     return { index: i + 1, line: raw._line || i + 2, ok: errors.length === 0, errors, warnings, value: S.normalize(entity, value) };
   });
 
   const valid = results.filter((r) => r.ok);
-  const summary = { entity, total: results.length, valid: valid.length, invalid: results.length - valid.length, mode };
+  const summary = {
+    entity, total: results.length, valid: valid.length, invalid: results.length - valid.length,
+    mode, strategy: replace ? 'replace' : 'merge',
+  };
 
-  if (mode !== 'commit' || !valid.length) return ok(res, Object.assign(summary, { results, imported: 0 }));
+  if (mode !== 'commit' || !valid.length) {
+    if (replace && mode === 'commit' && !valid.length) return fail(res, 400, '覆盖导入被拒绝：没有任何一行通过校验，为避免清空台账已终止操作');
+    return ok(res, Object.assign(summary, { results, imported: 0 }));
+  }
+
+  // 覆盖模式：先归档，再清空，最后写入（任何一步出错都不会留下半截数据）
+  let archived = null;
+  let replacedCount = 0;
+  if (replace) {
+    archived = archiveEntity(entity);
+    replacedCount = store.length;
+    if (entity === 'households') backupHouseholds();
+    while (store.length) store.pop();
+  }
 
   // 写入：按类型生成 id 并落盘
   let imported = 0;
   valid.forEach((r) => {
     const v = r.value;
     if (entity === 'households') {
-      backupHouseholds();
+      if (!replace) backupHouseholds();
       db.households.push(Object.assign({
         id: v.houseNo, phone: '138****0000', tags: [], updatedAt: new Date().toISOString().slice(0, 10),
         lat: Number(v.lat) || 30.235, lng: Number(v.lng) || 120.1155,
@@ -649,7 +738,10 @@ app.post('/api/import/:entity', (req, res) => {
   if (entity === 'notices') persist.notices();
   if (entity === 'events') persist.events();
 
-  ok(res, Object.assign(summary, { results, imported }));
+  ok(res, Object.assign(summary, {
+    results, imported, replaced: replacedCount,
+    archived: archived ? path.basename(archived) : null,
+  }));
 });
 
 /** 单条新增农户（录入页使用） */

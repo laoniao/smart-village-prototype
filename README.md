@@ -21,8 +21,8 @@ npm start
 自动化测试与截图：
 
 ```bash
-npm test          # 接口 / 权限 / 脱敏 / 导入用例 75 项，输出 docs/测试记录.md
-npm run test:ui   # 页面交互用例 44 项（需先 npm start），输出 docs/UI测试记录.md
+npm test          # 接口 / 权限 / 脱敏 / 导入用例 90 项，输出 docs/测试记录.md
+npm run test:ui   # 页面交互用例 56 项（需先 npm start），输出 docs/UI测试记录.md
 npm run shots     # 自动截图到 docs/screenshots（需先 npm start）
 ```
 
@@ -52,6 +52,18 @@ docs/       使用说明、接口文档、测试记录、界面截图
 - 接口文档：[`docs/接口文档.md`](docs/接口文档.md)
 - 界面截图：[`docs/演示截图.md`](docs/演示截图.md)
 - 测试记录：[`docs/测试记录.md`](docs/测试记录.md) · [`docs/UI测试记录.md`](docs/UI测试记录.md)
+
+## 数据维护口径
+
+| 数据 | 删除方式 | 说明 |
+| --- | --- | --- |
+| 服务网点 | 物理删除 | `DELETE /api/points/:id`，页面有按钮 |
+| 通知公告 | 物理删除 | `DELETE /api/notices/:id`，页面有按钮 |
+| 摄像头设备 | 物理删除 | `DELETE /api/cameras/device/:id`，「系统接入」页可新增 / 编辑 / 删除 |
+| 农户台账 | 标记退出 | 状态改为 `已搬迁 / 已拆除`，记录保留、不计入常住户（stats 返回 `resident` / `retired`） |
+| 事件记录 | 标记作废 | 状态改为 `已作废`，记录保留、不计入待处置与告警，可随时恢复 |
+
+台账类数据不提供物理删除，避免历史事件、走访记录与统计口径出现孤儿数据。
 
 ## 数据与合规说明
 

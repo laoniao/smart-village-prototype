@@ -17,6 +17,7 @@
     impEntity: 'households',
     impSchema: null,
     impRows: null,
+    camSchema: null,
   };
 
   /* ---------------- 基础请求 ---------------- */
@@ -888,7 +889,7 @@
     households: {
       title: '农户台账',
       cols: ['户号', '户主', '组别', '家庭成员', '房屋状态', '关怀标签', '更新时间', '操作'],
-      row: (h) => [h.houseNo, h.owner, h.group, h.members + ' 人', `<span class="badge ${h.houseStatus === '正常' ? 'ok' : h.houseStatus === '闲置' ? 'idle' : 'warn'}">${h.houseStatus}</span>`, h.care, h.updatedAt,
+      row: (h) => [h.houseNo, h.owner, h.group, h.members + ' 人', `<span class="badge ${h.houseStatus === '正常' ? 'ok' : h.houseStatus === '闲置' ? 'idle' : (['已搬迁', '已拆除'].indexOf(h.houseStatus) >= 0 ? 'gone' : 'warn')}">${h.houseStatus}</span>`, h.care, h.updatedAt,
         `<div class="ops"><button data-edit-h="${h.id}">维护</button><button data-locate="${h.id}">定位</button></div>`],
     },
     points: {
@@ -904,8 +905,10 @@
     events: {
       title: '事件记录',
       cols: ['事件', '类别', '上报时间', '上报人', '状态', '操作'],
-      row: (e) => [e.title, e.category, e.reportedAt, e.reporter, `<span class="st ${e.status === '待处置' ? 'pending' : 'done'}">${e.status}</span>`,
-        `<div class="ops"><button data-toggle-e="${e.id}">${e.status === '待处置' ? '标记已处置' : '重新打开'}</button></div>`],
+      row: (e) => [e.title, e.category, e.reportedAt, e.reporter,
+        `<span class="st ${e.status === '待处置' ? 'pending' : e.status === '已作废' ? 'void' : e.status === '处置中' ? 'doing' : 'done'}">${e.status}</span>`,
+        `<div class="ops"><button data-toggle-e="${e.id}">${e.status === '已处置' ? '重新打开' : '标记已处置'}</button>`
+        + `<button class="${e.status === '已作废' ? '' : 'del'}" data-void-e="${e.id}">${e.status === '已作废' ? '恢复' : '作废'}</button></div>`],
     },
   };
 
@@ -964,10 +967,29 @@
     $$('[data-toggle-e]').forEach((b) => b.addEventListener('click', async () => {
       const e = state.data.events.find((x) => x.id === b.dataset.toggleE);
       if (state.role !== 'admin') return toast('仅管理员可变更事件状态');
-      await api('/api/events/' + e.id, { method: 'PATCH', body: JSON.stringify({ status: e.status === '待处置' ? '已处置' : '待处置' }) });
+      await api('/api/events/' + e.id, { method: 'PATCH', body: JSON.stringify({ status: e.status === '已处置' ? '待处置' : '已处置' }) });
       state.data.events = await api('/api/events');
       renderAdmin();
       toast('事件状态已更新');
+    }));
+    $$('[data-void-e]').forEach((b) => b.addEventListener('click', () => {
+      const e = state.data.events.find((x) => x.id === b.dataset.voidE);
+      if (state.role !== 'admin') return toast('仅管理员可作废事件');
+      const back = e.status === '已作废';
+      modal({
+        title: back ? '恢复事件' : '作废事件',
+        fields: [],
+        confirmText: back ? '确认恢复' : '确认作废',
+        desc: back
+          ? `恢复后「${e.title}」将重新回到待处置列表，是否继续？`
+          : `作废只打标记、不删除记录：「${e.title}」会保留在台账中，但不计入待处置与处置率考核。是否继续？`,
+        onSubmit: async () => {
+          await api('/api/events/' + e.id, { method: 'PATCH', body: JSON.stringify({ status: back ? '待处置' : '已作废' }) });
+          state.data.events = await api('/api/events');
+          renderAdmin();
+          toast(back ? '事件已恢复' : '事件已作废');
+        },
+      });
     }));
   }
 
@@ -977,10 +999,11 @@
     modal({
       title: '维护农户信息 · ' + h.houseNo,
       fields: [
-        { k: 'houseStatus', label: '房屋状态', type: 'select', options: ['正常', '待核查', '闲置'], value: h.houseStatus },
+        { k: 'houseStatus', label: '房屋状态', type: 'select', options: ['正常', '待核查', '闲置', '已搬迁', '已拆除'], value: h.houseStatus },
         { k: 'members', label: '家庭成员数', type: 'number', value: h.members },
         { k: 'care', label: '关怀标签', type: 'select', options: ['无', '留守老人', '低保户', '残疾人', '独居老人'], value: h.care },
       ],
+      desc: '「已搬迁 / 已拆除」用于户已不在本村的情况：只打标记，记录仍保留在台账里，不计入常住户统计。',
       onSubmit: async (v) => {
         await api('/api/households/' + h.id, { method: 'PATCH', body: JSON.stringify({ houseStatus: v.houseStatus, members: Number(v.members), care: v.care }) });
         Object.assign(h, { houseStatus: v.houseStatus, members: Number(v.members), care: v.care });
@@ -1043,16 +1066,16 @@
     });
   }
 
-  function modal({ title, fields, onSubmit, confirmText = '保存', desc }) {
+  function modal({ title, fields, onSubmit, confirmText = '保存', desc, wide = false }) {
     const mask = document.createElement('div');
     mask.className = 'modal-mask';
-    mask.innerHTML = `<div class="modal">
+    mask.innerHTML = `<div class="modal${wide ? ' wide' : ''}">
       <h3>${title}</h3>
       <div class="mbody">
-        ${desc ? `<div style="font-size:12.5px;color:#4b6076;line-height:1.7">${desc}</div>` : ''}
-        ${fields.map((f) => `<div class="field"><label>${f.label}</label>
+        ${desc ? `<div class="wide-all" style="font-size:12.5px;color:#4b6076;line-height:1.7">${desc}</div>` : ''}
+        ${fields.map((f) => `<div class="field${f.wide ? ' wide-all' : ''}"><label>${f.label}</label>
           ${f.type === 'select'
-            ? `<select data-k="${f.k}">${f.options.map((o) => `<option ${o === f.value ? 'selected' : ''}>${o}</option>`).join('')}</select>`
+            ? `<select data-k="${f.k}">${f.options.map((o) => `<option value="${o}" ${o === f.value ? 'selected' : ''}>${(f.optionLabels && f.optionLabels[o]) || o}</option>`).join('')}</select>`
             : f.type === 'textarea'
               ? `<textarea data-k="${f.k}">${f.value || ''}</textarea>`
               : `<input data-k="${f.k}" type="${f.type || 'text'}" value="${f.value ?? ''}">`}
@@ -1367,22 +1390,44 @@
     });
   }
 
-  async function runImport(mode) {
+  function runImport(mode) {
     const text = $('#impText').value;
     if (!text.trim()) { toast('请先粘贴数据（首行为表头）'); return; }
+    const replace = !!($('#impReplace') && $('#impReplace').checked);
+    if (mode === 'commit' && replace) {
+      const label = state.impSchema ? state.impSchema.label : '该类数据';
+      modal({
+        title: '覆盖导入确认', fields: [], confirmText: '确认覆盖',
+        desc: `将先清空「${label}」现有全部记录（地图上的点位也会一并消失），再写入本次通过校验的数据。<br>覆盖前会自动归档一份到 data/runtime，可人工回溯。是否继续？`,
+        onSubmit: () => doImport('commit', true),
+      });
+      return;
+    }
+    doImport(mode, replace);
+  }
+
+  async function doImport(mode, replace) {
+    const text = $('#impText').value;
     const btn = mode === 'commit' ? $('#impCommit') : $('#impValidate');
     btn.disabled = true;
     try {
       const r = await api('/api/import/' + state.impEntity, {
-        method: 'POST', body: JSON.stringify({ text, mode }),
+        method: 'POST',
+        body: JSON.stringify({ text, mode, strategy: replace ? 'replace' : 'merge' }),
       });
       state.impRows = r;
       renderImportResult(r, mode);
       if (mode === 'commit') {
-        toast('已导入 ' + r.imported + ' 条');
+        toast((replace ? '已覆盖导入 ' : '已导入 ') + r.imported + ' 条' + (replace ? `（原 ${r.replaced} 条已归档）` : ''));
         $('#impCommit').disabled = true;
         if (state.impEntity === 'households') {
           try { await reloadHouseholds(); } catch (e) { /* 忽略 */ }
+        }
+        if (state.impEntity === 'points') {
+          try { state.data.points = await api('/api/service-points'); renderPointLayers(); } catch (e) { /* 忽略 */ }
+        }
+        if (state.impEntity === 'cameras') {
+          try { state.data.cameras = await api('/api/cameras'); } catch (e) { /* 忽略 */ }
         }
       } else {
         $('#impCommit').disabled = !(r.valid > 0 && state.role === 'admin');
@@ -1404,7 +1449,9 @@
         <span class="imp-chip ok">通过 ${r.valid} 行</span>
         <span class="imp-chip ${r.invalid ? 'bad' : ''}">异常 ${r.invalid} 行</span>
         ${warnCount ? `<span class="imp-chip warn">${warnCount} 行有提示</span>` : ''}
+        ${r.strategy === 'replace' ? `<span class="imp-chip warn">覆盖模式</span>` : ''}
         ${mode === 'commit' ? `<span class="imp-chip ok">已写入 ${r.imported} 条</span>` : ''}
+        ${mode === 'commit' && r.strategy === 'replace' ? `<span class="imp-chip">原 ${r.replaced} 条已归档${r.archived ? '：' + r.archived : ''}</span>` : ''}
       </div>
       ${r.results.map((row) => {
         const cls = !row.ok ? 'bad' : (row.warnings && row.warnings.length ? 'warn' : 'ok');
@@ -1450,9 +1497,122 @@
 
   function initIntegrationPage() {
     $('#camDevList').addEventListener('click', (e) => {
+      const ed = e.target.closest('[data-cam-edit]');
+      if (ed) { openCameraForm(ed.dataset.camEdit); return; }
+      const del = e.target.closest('[data-cam-del]');
+      if (del) { removeCamera(del.dataset.camDel); return; }
       const card = e.target.closest('.cam-dev');
       if (card) openCameraOnMap(card.dataset.id);
     });
+    const addBtn = $('#btnAddCam');
+    if (addBtn) addBtn.addEventListener('click', () => openCameraForm(null));
+  }
+
+  /* ---------- 摄像头设备台账：增 / 改 / 删 ---------- */
+  async function cameraSchema() {
+    if (!state.camSchema) state.camSchema = await api('/api/schema/cameras');
+    return state.camSchema;
+  }
+
+  async function openCameraForm(id) {
+    if (state.role !== 'admin') return toast('仅管理员可维护设备台账');
+    const cam = id ? (state.data.cameras || []).find((c) => c.id === id) : null;
+    if (id && !cam) return toast('设备不存在，请刷新后重试');
+    let def;
+    try { def = await cameraSchema(); } catch (e) { return toast('读取字段定义失败：' + e.message); }
+
+    const fields = def.fields.map((f) => {
+      let val = cam ? cam[f.key] : f.sample;
+      if (f.key === 'ptz') val = cam ? (cam.ptz ? '是' : '否') : (f.sample || '否');
+      if (f.key === 'status') val = cam ? cam.status : 'online';
+      if (f.key === 'aiTags' && Array.isArray(val)) val = val.join(',');
+      // 列表接口下发的取流地址是脱敏代理地址，回填进表单会被当成真实地址保存，这里清空
+      if (f.key === 'streamUrl' && typeof val === 'string' && val.indexOf('/api/cameras/') === 0) val = '';
+      if (val === undefined || val === null) val = '';
+      return {
+        k: f.key,
+        label: f.label + (f.required ? ' *' : ''),
+        type: f.options ? 'select' : (f.type === 'textarea' ? 'textarea' : (f.type === 'number' ? 'number' : 'text')),
+        options: f.options,
+        optionLabels: f.key === 'status' ? { online: '在线', offline: '离线', fault: '故障' } : undefined,
+        value: val,
+        wide: f.type === 'textarea' || ['streamUrl', 'name', 'address'].indexOf(f.key) >= 0,
+      };
+    });
+
+    modal({
+      title: cam ? '编辑设备 · ' + cam.id : '新增视频监控设备',
+      wide: true,
+      fields,
+      desc: cam
+        ? '局部修改即可，未填的字段保持原值；取流地址留空表示沿用设备原有地址。设备编号需 20 位 GB/T 28181 编码。'
+        : '新设备保存后会立即出现在设备清单与地图上；取流地址仅作展示，演示环境不会真实拉流。',
+      onSubmit: async (v) => {
+        const body = Object.assign({}, v);
+        ['lat', 'lng', 'direction', 'radius'].forEach((k) => { if (body[k] !== '' && body[k] != null) body[k] = Number(body[k]); });
+        if (body.streamUrl && String(body.streamUrl).indexOf('/api/cameras/') === 0) delete body.streamUrl;
+        if (cam) {
+          await api('/api/cameras/device/' + cam.id, { method: 'PUT', body: JSON.stringify(body) });
+        } else {
+          await api('/api/cameras/device', { method: 'POST', body: JSON.stringify(body) });
+        }
+        await refreshCameras();
+        toast(cam ? '设备已更新：' + cam.id : '设备已新增');
+      },
+    });
+  }
+
+  function removeCamera(id) {
+    if (state.role !== 'admin') return toast('仅管理员可删除设备');
+    const cam = (state.data.cameras || []).find((c) => c.id === id);
+    if (!cam) return;
+    modal({
+      title: '删除设备', fields: [], confirmText: '确认删除',
+      desc: `将删除「${cam.name}」（${cam.id}）及其地图标记。设备台账删除后不可恢复，是否继续？`,
+      onSubmit: async () => {
+        await api('/api/cameras/device/' + cam.id, { method: 'DELETE' });
+        closeCameraPanel();
+        await refreshCameras();
+        toast('已删除设备：' + cam.id);
+      },
+    });
+  }
+
+  /** 设备增删改后统一刷新：列表 + 统计条 + 地图标记 */
+  async function refreshCameras() {
+    try {
+      const [stats, list] = await Promise.all([api('/api/cameras/stats'), api('/api/cameras')]);
+      state.data.cameras = list;
+      $('#camStatsLine').textContent = camStatsText(stats);
+      renderCamDevices();
+      renderPointLayers();
+      if (ovMap && ovLayers.cameras) { /* 概览页标记在下一次进入时重绘 */ }
+    } catch (e) { toast('刷新设备列表失败：' + e.message); }
+  }
+
+  function camStatsText(s) {
+    return `共 ${s.total} 路 · 在线 ${s.online} · 离线 ${s.offline + (s.fault || 0)} · 在线率 ${s.onlineRate}% · 云台 ${s.ptzCount} 路 · AI ${s.aiCount} 路`;
+  }
+
+  function renderCamDevices() {
+    const list = state.data.cameras || [];
+    $('#camDevList').innerHTML = list.map((c) => `
+        <div class="cam-dev" data-id="${c.id}">
+          <div class="thumb">
+            <img src="/api/cameras/${c.id}/snapshot?t=${Date.now()}" alt="${c.name}" loading="lazy">
+            <span class="st ${c.status === 'online' ? 'on' : 'off'}">${c.status === 'online' ? '在线' : (c.status === 'fault' ? '故障' : '离线')}</span>
+          </div>
+          <div class="cops">
+            <button data-cam-edit="${c.id}">编辑</button>
+            <button class="del" data-cam-del="${c.id}">删除</button>
+          </div>
+          <div class="db">
+            <b>${c.name}</b>
+            <span class="m">${c.id} · ${(c.protocol || '').toUpperCase()} · ${c.resolution || '-'}</span>
+            <span class="m">${c.vendor || '-'} · ${c.kind || '-'}</span>
+            <span class="t">${(c.aiTags || []).map((a) => `<i>${a}</i>`).join('')}</span>
+          </div>
+        </div>`).join('') || '<div class="imp-empty">暂无设备，可点右上角「新增设备」添加</div>';
   }
 
   async function openCameraOnMap(id) {
@@ -1473,7 +1633,7 @@
         api('/api/cameras/capabilities'), api('/api/cameras/stats'), api('/api/cameras'),
       ]);
       state.data.cameras = list;
-      $('#camStatsLine').textContent = `共 ${stats.total} 路 · 在线 ${stats.online} · 离线 ${stats.offline + (stats.fault || 0)} · 在线率 ${stats.onlineRate}% · 云台 ${stats.ptzCount} 路 · AI ${stats.aiCount} 路`;
+      $('#camStatsLine').textContent = camStatsText(stats);
       $('#capList').innerHTML = `
         ${caps.protocols.map((p) => `
           <div class="cap-card">
@@ -1493,19 +1653,7 @@
           <div class="ch"><i class="stub"></i>接入说明</div>
           <div class="cd">${caps.note}</div>
         </div>`;
-      $('#camDevList').innerHTML = list.map((c) => `
-        <div class="cam-dev" data-id="${c.id}">
-          <div class="thumb">
-            <img src="/api/cameras/${c.id}/snapshot?t=${Date.now()}" alt="${c.name}" loading="lazy">
-            <span class="st ${c.status === 'online' ? 'on' : 'off'}">${c.status === 'online' ? '在线' : (c.status === 'fault' ? '故障' : '离线')}</span>
-          </div>
-          <div class="db">
-            <b>${c.name}</b>
-            <span class="m">${c.id} · ${(c.protocol || '').toUpperCase()} · ${c.resolution || '-'}</span>
-            <span class="m">${c.vendor || '-'} · ${c.kind || '-'}</span>
-            <span class="t">${(c.aiTags || []).map((a) => `<i>${a}</i>`).join('')}</span>
-          </div>
-        </div>`).join('');
+      renderCamDevices();
     } catch (e) { toast('读取监控能力失败：' + e.message); }
 
     $('#apiList').innerHTML = API_INVENTORY.map(([m, p, d]) => `

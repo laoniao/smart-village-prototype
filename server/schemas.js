@@ -9,7 +9,9 @@
 /** 示范村大致范围，用于“超出范围”提示（仅警告，不阻断） */
 const VILLAGE_BBOX = { latMin: 30.215, latMax: 30.255, lngMin: 120.098, lngMax: 120.134 };
 
-const STATUSES = ['正常', '待核查', '闲置'];
+/** 房屋状态：后两项为「退出台账」的标记，不删除记录，只从常住户统计中排除 */
+const STATUSES = ['正常', '待核查', '闲置', '已搬迁', '已拆除'];
+const RETIRED_STATUSES = ['已搬迁', '已拆除'];
 const CARE_TAGS = ['无', '留守老人', '独居老人', '低保户', '残疾人', '困境儿童'];
 const POINT_TYPES = ['便民服务', '医疗健康', '文化活动', '养老服务', '生活服务', '政务代办'];
 const PROTOCOLS = ['gb28181', 'rtsp', 'hls', 'rtmp', 'webrtc'];
@@ -113,7 +115,7 @@ const SCHEMAS = {
       { key: 'reporter', label: '上报人', type: 'text', sample: '网格员 王某' },
       { key: 'lat', label: '纬度', type: 'number', min: 3, max: 54, sample: 30.2348 },
       { key: 'lng', label: '经度', type: 'number', min: 73, max: 136, sample: 120.1162 },
-      { key: 'status', label: '处置状态', type: 'select', options: ['待处置', '处置中', '已处置'], sample: '待处置' },
+      { key: 'status', label: '处置状态', type: 'select', options: ['待处置', '处置中', '已处置', '已作废'], sample: '待处置', desc: '已作废 = 误报或重复上报，保留记录但不计入考核' },
     ],
   },
 };
@@ -281,5 +283,5 @@ function parseText(entity, text) {
 module.exports = {
   SCHEMAS, describe, validateRow, normalize, toCsv, parseText,
   entityList: () => Object.keys(SCHEMAS).map((k) => ({ entity: k, label: SCHEMAS[k].label, icon: SCHEMAS[k].icon, desc: SCHEMAS[k].desc })),
-  VILLAGE_BBOX,
+  VILLAGE_BBOX, STATUSES, RETIRED_STATUSES,
 };
