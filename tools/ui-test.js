@@ -102,6 +102,69 @@ function check(name, cond, detail = '') {
   await page.locator('[data-toggle-e]').first().click();
   await sleep(700);
 
+  // ---------- 数据录入 ----------
+  await page.click('[data-page="import"]');
+  await sleep(1000);
+  check('数据录入页加载', await page.isVisible('#impText'), '粘贴区 + 单条表单');
+  const tabCount = await page.locator('#importTabs button').count();
+  check('录入类型页签', tabCount === 5, `${tabCount} 类：农户/网点/摄像头/通知/事件`);
+  check('字段说明渲染', (await page.locator('#schemaFields .schema-item').count()) >= 10);
+  check('单条表单渲染', (await page.locator('#impForm .f').count()) >= 10);
+
+  await page.click('#impSample');
+  await sleep(500);
+  check('填入模板示例', (await page.inputValue('#impText')).indexOf('户号') === 0);
+  await page.click('#impValidate');
+  await sleep(1000);
+  const chips = await page.locator('#impResult .imp-chip').allTextContents();
+  check('批量校验返回结果', chips.length >= 3 && chips.join('').indexOf('通过') >= 0, chips.join(' / '));
+  check('校验通过后可提交', !(await page.locator('#impCommit').isDisabled()));
+
+  await page.fill('#if_houseNo', '!!');
+  await page.fill('#if_owner', '');
+  await page.click('#impSubmit');
+  await sleep(700);
+  check('单条录入必填校验', (await page.locator('#impForm .f.err').count()) > 0, '错误字段高亮');
+
+  await page.click('#importTabs button[data-ent="cameras"]');
+  await sleep(800);
+  check('切换录入类型联动字段', (await page.textContent('#schemaDesc')).indexOf('设备') >= 0);
+
+  // ---------- 系统接入 ----------
+  await page.click('[data-page="integration"]');
+  await sleep(1400);
+  check('系统接入页加载', await page.isVisible('#mapProvList'));
+  const provCount = await page.locator('#mapProvList .prov-card').count();
+  check('底图服务清单', provCount >= 4, `${provCount} 个服务`);
+  check('视频监控能力清单', (await page.locator('#capList .cap-card').count()) >= 5);
+  const devCount = await page.locator('#camDevList .cam-dev').count();
+  check('摄像头设备清单', devCount === 12, `${devCount} 路`);
+  check('接口清单', (await page.locator('#apiList .api-item').count()) >= 15);
+
+  // 底图切换
+  await page.click('[data-page="households"]');
+  await sleep(2500);
+  const provSel = await page.locator('#baseProvider option').count();
+  check('底图服务下拉', provSel >= 4, `${provSel} 项可选`);
+  await page.click('.map-base-switch [data-base="vector"]');
+  await sleep(1500);
+  check('切换矢量底图', (await page.getAttribute('#hhMap', 'data-base')) === 'vector', '容器标记已更新');
+
+  // 摄像头面板
+  await page.click('[data-page="integration"]');
+  await sleep(800);
+  await page.locator('#camDevList .cam-dev').first().click();
+  await sleep(3200);
+  check('地图打开摄像头面板', await page.isVisible('#camPanel'), (await page.textContent('#camPanel .cp-head b').catch(() => '')) || '');
+  check('面板显示实时画面占位', await page.isVisible('#camPanel .cam-shot img'));
+  const ptzCount = await page.locator('#camPanel .cp-ptz button').count();
+  check('云台控制按钮', ptzCount === 8, `${ptzCount} 个方向键`);
+  await page.locator('#camPanel .cp-ptz button').nth(2).click();
+  await sleep(600);
+  check('云台指令下发有反馈', (await page.locator('.toast').count()) > 0);
+  await page.click('#camPanel .cp-close');
+  await sleep(400);
+
   // ---------- 小程序 ----------
   const ctx2 = await browser.newContext({ viewport: { width: 430, height: 900 }, deviceScaleFactor: 1 });
   const mp = await ctx2.newPage();

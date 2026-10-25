@@ -72,6 +72,38 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(800);
   await page.screenshot({ path: path.join(OUT, 'web-07-admin.png') });
 
+  // 数据录入（模板 + 批量校验）
+  await page.click('[data-page="import"]');
+  await sleep(900);
+  await page.click('#impSample');
+  await sleep(400);
+  await page.click('#impValidate');
+  await sleep(1200);
+  await page.screenshot({ path: path.join(OUT, 'web-09-import.png') });
+
+  // 系统接入
+  await page.click('[data-page="integration"]');
+  await sleep(1800);
+  await page.screenshot({ path: path.join(OUT, 'web-10-integration.png') });
+
+  // 摄像头面板（地图内）
+  await page.click('[data-page="households"]');
+  await sleep(2600);
+  await page.waitForFunction(() => {
+    const imgs = [...document.querySelectorAll('#hhMap img.leaflet-tile')];
+    return imgs.length > 0 && imgs.every((i) => i.complete && i.naturalWidth > 0);
+  }, null, { timeout: 25000 }).catch(() => {});
+  await sleep(600);
+  await page.click('#camDevList .cam-dev').catch(async () => {
+    await page.click('[data-page="integration"]');
+    await sleep(1400);
+    await page.click('#camDevList .cam-dev');
+  });
+  await sleep(3200);
+  await page.screenshot({ path: path.join(OUT, 'web-11-camera-panel.png') });
+  await page.click('#camPanel .cp-close').catch(() => {});
+  await sleep(400);
+
   // 小程序
   const mctx = await browser.newContext({ viewport: { width: 520, height: 1000 }, deviceScaleFactor: 2 });
   const mp = await mctx.newPage();

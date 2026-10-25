@@ -1,0 +1,73 @@
+{
+  "note": "底图服务接入配置。修改本文件或设置环境变量即可切换底图，无需改动前端代码。",
+  "defaultGroup": "satellite",
+  "env": {
+    "TIANDITU_KEY": "天地图服务令牌，申请地址 https://console.tianditu.gov.cn/api/key",
+    "MAP_PROVIDER": "指定默认生效的底图 id，默认取 defaultGroup 中第一个可用服务"
+  },
+  "providers": [
+    {
+      "id": "esri-img",
+      "name": "Esri 卫星影像",
+      "short": "影像",
+      "group": "satellite",
+      "crs": "wgs84",
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      "options": { "maxZoom": 18, "maxNativeZoom": 18, "attribution": "影像底图 © Esri · 演示用途" },
+      "needKey": false,
+      "enabled": true,
+      "desc": "ArcGIS Online 公开影像瓦片，开发演示可直接使用；商用需 ArcGIS 许可。"
+    },
+    {
+      "id": "amap-vec",
+      "name": "高德矢量地图",
+      "short": "矢量",
+      "group": "vector",
+      "crs": "gcj02",
+      "url": "https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}",
+      "annoUrl": "https://wprd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=8",
+      "options": { "subdomains": "1234", "maxZoom": 18, "maxNativeZoom": 18, "attribution": "矢量底图 © 高德 · 演示用途" },
+      "needKey": false,
+      "enabled": true,
+      "desc": "GCJ02 坐标系，页面会自动对业务点位做 WGS84→GCJ02 纠偏。正式项目建议改用官方 JS API 并申请 key。"
+    },
+    {
+      "id": "tianditu-img",
+      "name": "天地图影像",
+      "short": "天地图影像",
+      "group": "satellite",
+      "crs": "wgs84",
+      "url": "https://t{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${TIANDITU_KEY}",
+      "annoUrl": "https://t{s}.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${TIANDITU_KEY}",
+      "options": { "subdomains": "01234567", "maxZoom": 18, "maxNativeZoom": 18, "attribution": "© 天地图" },
+      "needKey": true,
+      "enabled": true,
+      "desc": "国家地理信息公共服务平台，政务项目首选；需在控制台申请 key 后设置环境变量 TIANDITU_KEY。"
+    },
+    {
+      "id": "tianditu-vec",
+      "name": "天地图矢量",
+      "short": "天地图矢量",
+      "group": "vector",
+      "crs": "wgs84",
+      "url": "https://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${TIANDITU_KEY}",
+      "annoUrl": "https://t{s}.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${TIANDITU_KEY}",
+      "options": { "subdomains": "01234567", "maxZoom": 18, "maxNativeZoom": 18, "attribution": "© 天地图" },
+      "needKey": true,
+      "enabled": true,
+      "desc": "天地图矢量底图 + 中文注记，坐标系为 CGCS2000，无需 GCJ02 纠偏。"
+    },
+    {
+      "id": "custom-tiles",
+      "name": "自建 / 内网瓦片",
+      "short": "自建瓦片",
+      "group": "satellite",
+      "crs": "wgs84",
+      "url": "http://127.0.0.1:8080/data/village/{z}/{x}/{y}.png",
+      "options": { "maxZoom": 18, "maxNativeZoom": 18, "attribution": "自建瓦片服务" },
+      "needKey": false,
+      "enabled": false,
+      "desc": "离线部署场景：用 tippecanoe/tileserver-gl 切村域瓦片后，把 url 改成实际服务地址并将 enabled 设为 true。"
+    }
+  ]
+}

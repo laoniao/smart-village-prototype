@@ -14,6 +14,9 @@
     adminPage: 1,
     adminSearch: '',
     chat: [],
+    impEntity: 'households',
+    impSchema: null,
+    impRows: null,
   };
 
   /* ---------------- 基础请求 ---------------- */
@@ -69,6 +72,8 @@
     }
     if (page === 'admin') renderAdmin();
     if (page === 'qa') scrollChat();
+    if (page === 'import') enterImport();
+    if (page === 'integration') enterIntegration();
   }
   $$('.nav-item').forEach((b) => b.addEventListener('click', () => goPage(b.dataset.page)));
   $('#toHouseholds').addEventListener('click', () => goPage('households'));
@@ -309,6 +314,23 @@
     return hhLoading;
   }
 
+  /** 导入后刷新地图图层（不重建地图） */
+  async function reloadHouseholds() {
+    await initHouseholds();
+    if (!hhMap) return;
+    const [list, points, cameras, events] = await Promise.all([
+      api('/api/households?size=600'), api('/api/service-points'), api('/api/cameras'), api('/api/events'),
+    ]);
+    state.data.households = list.rows;
+    state.data.points = points;
+    state.data.cameras = cameras;
+    state.data.events = events;
+    renderMiniStats(list);
+    renderHouseholds();
+    renderPointLayers();
+    renderBoundary();
+  }
+
   async function buildHouseholdMap() {
     const [list, points, cameras, events] = await Promise.all([
       api('/api/households?size=600'), api('/api/service-points'), api('/api/cameras'), api('/api/events'),
@@ -413,7 +435,9 @@
           className: '', iconSize: [16, 16], iconAnchor: [8, 8],
           html: `<span style="display:grid;place-items:center;width:15px;height:15px;border-radius:4px;background:${c.status === 'online' ? '#334155' : '#94a3b8'};color:#fff;border:1.5px solid #fff">${icons.cam}</span>`,
         }),
-      }).addTo(hhLayers.cameras).bindTooltip('摄像头 · ' + c.name + (c.status === 'online' ? '' : '（离线）'), { direction: 'top', offset: [0, -8] });
+      }).addTo(hhLayers.cameras)
+        .bindTooltip('摄像头 · ' + c.name + (c.status === 'online' ? '' : '（离线）'), { direction: 'top', offset: [0, -8] })
+        .on('click', () => openCameraPanel(c.id));
     });
     state.data.events.forEach((e) => {
       L.marker(hp(e.lat, e.lng), {
@@ -512,13 +536,48 @@
   });
 
   $$('[data-base]').forEach((b) => b.addEventListener('click', () => switchBase(b.dataset.base)));
+  /** name 可为分组名（satellite / vector），也可为具体底图服务 id */
   function switchBase(name) {
-    if (!hhMap || state.base === name) return;
-    state.base = name;
-    $$('[data-base]').forEach((b) => b.classList.toggle('on', b.dataset.base === name));
+    if (!hhMap) return;
+    const p = MapKit.provider(name) || null;
+    const group = p ? p.group : name;
+    state.base = group;
+    $$('[data-base]').forEach((b) => b.classList.toggle('on', b.dataset.base === group));
     const main = state.data.villages.find((v) => v.isMain);
-    MapKit.setBase(hhMap, name, main ? main.center : null, refreshOverlays);
-    if (name === 'vector') toast('已切换矢量底图（已做坐标纠偏）');
+    const used = MapKit.setBase(hhMap, name, main ? main.center : null, refreshOverlays);
+    if (used) {
+      const sel = $('#baseProvider');
+      if (sel) sel.value = used.id;
+      toast('已切换：' + used.name + (used.crs === 'gcj02' ? '（已做坐标纠偏）' : ''));
+    }
+  }
+
+  /* ---------------- 底图服务下拉 ---------------- */
+  function renderBaseSelect() {
+    const sel = $('#baseProvider');
+    if (!sel) return;
+    const list = MapKit.providers(true);
+    sel.innerHTML = list.map((p) => {
+      const ok = p.enabled !== false && p.available !== false;
+      const tag = ok ? '' : (p.needKey ? '（需 key）' : '（未启用）');
+      return `<option value="${p.id}"${ok ? '' : ' disabled'}>${p.name}${tag}</option>`;
+    }).join('');
+    const cur = MapKit.current();
+    if (cur) sel.value = cur.id;
+    sel.onchange = () => { if (sel.value) switchBase(sel.value); };
+  }
+
+  /** 地图四角科技边框 */
+  function paintMapCorners() {
+    ['#hhMap', '#ovMap'].forEach((id) => {
+      const host = $(id);
+      if (!host || !host.parentElement || host.parentElement.querySelector('.map-corner')) return;
+      ['tl', 'tr', 'bl', 'br'].forEach((pos) => {
+        const d = document.createElement('div');
+        d.className = 'map-corner ' + pos;
+        host.parentElement.appendChild(d);
+      });
+    });
   }
 
   /* 详情抽屉 */
@@ -1053,6 +1112,445 @@
   });
   $('#bellBtn').addEventListener('click', () => { goPage('admin'); state.adminTab = 'events'; syncAdminTabs(); renderAdmin(); });
 
+  /* =========================================================
+     摄像头面板（点击地图上的摄像头图标）
+     ========================================================= */
+  const PTZ_LABEL = { up: '↑', down: '↓', left: '←', right: '→', zoomIn: '＋', zoomOut: '－', reset: '复位', stop: '停止' };
+  let camPanelId = null;
+
+  function closeCameraPanel() {
+    camPanelId = null;
+    const el = $('#camPanel');
+    if (el) { el.classList.add('hidden'); el.innerHTML = ''; }
+  }
+
+  async function openCameraPanel(id) {
+    const box = $('#camPanel');
+    if (!box) return;
+    camPanelId = id;
+    box.classList.remove('hidden');
+    box.innerHTML = '<div class="cp-head"><b>正在读取设备…</b><span class="cp-close">×</span></div>';
+    box.querySelector('.cp-close').onclick = closeCameraPanel;
+    try {
+      const c = await api('/api/cameras/' + id);
+      if (camPanelId !== id) return;
+      renderCamPanel(c);
+    } catch (e) {
+      box.innerHTML = '<div class="cp-head"><b>摄像头</b><span class="cp-close">×</span></div>'
+        + '<div class="cp-note" style="padding:10px 11px">读取失败：' + e.message + '</div>';
+      box.querySelector('.cp-close').onclick = closeCameraPanel;
+    }
+  }
+
+  function renderCamPanel(c) {
+    const box = $('#camPanel');
+    const online = c.status === 'online';
+    const t = Date.now();
+    box.innerHTML = `
+      <div class="cp-head">
+        <b>${c.name}</b>
+        <span class="cp-close">×</span>
+      </div>
+      <div class="cam-shot">
+        ${online
+          ? `<span class="badge-live"><i></i>LIVE</span><img src="/api/cameras/${c.id}/snapshot?t=${t}" alt="实时画面">`
+          : `<span class="badge-off">${c.status === 'fault' ? '故障' : '离线'}</span><img src="/api/cameras/${c.id}/snapshot?t=${t}" alt="画面" style="filter:grayscale(1) brightness(.5)">`}
+        <span class="cp-time">${new Date().toLocaleString('zh-CN', { hour12: false })}</span>
+      </div>
+      <div class="cp-meta">
+        <span>编号<b>${c.id}</b></span>
+        <span>通道<b>${c.channel || '-'}</b></span>
+        <span>协议<b>${(c.protocol || '').toUpperCase()}</b></span>
+        <span>分辨率<b>${c.resolution || '-'}</b></span>
+        <span>厂商<b>${c.vendor || '-'}</b></span>
+        <span>方位<b>${c.direction}°</b></span>
+        <span>存储<b>${c.storageDays || 30} 天</b></span>
+        <span>类型<b>${c.kind || '-'}</b></span>
+      </div>
+      <div class="cp-tags">${(c.aiTags || []).map((a) => `<i>${a}</i>`).join('') || '<i>未启用 AI 算法</i>'}</div>
+      <div class="cp-ptz">
+        ${['up', 'down', 'left', 'right', 'zoomIn', 'zoomOut', 'reset', 'stop']
+          .map((a) => `<button data-ptz="${a}" ${(!c.ptz || !online) ? 'disabled' : ''}>${PTZ_LABEL[a]}</button>`).join('')}
+      </div>
+      <div class="cp-foot">
+        <button data-act="snap" ${online ? '' : 'disabled'}>抓拍</button>
+        <button data-act="stream" ${online ? '' : 'disabled'}>取流地址</button>
+      </div>
+      <div class="cp-note">${c.ptz ? '支持云台控制' : '固定枪机，无云台'} · 设备编号 ${c.deviceId || '-'} · ${c.note || '演示设备，不接入真实视频流'}</div>
+    `;
+    box.querySelector('.cp-close').onclick = closeCameraPanel;
+    box.querySelectorAll('[data-ptz]').forEach((b) => b.addEventListener('click', async () => {
+      try {
+        const r = await api('/api/cameras/' + c.id + '/ptz', {
+          method: 'POST', body: JSON.stringify({ action: b.dataset.ptz, speed: 5 }),
+        });
+        toast('云台指令已下发：' + PTZ_LABEL[b.dataset.ptz] + (r && r.direction != null ? ' · 当前方位 ' + r.direction + '°' : ''));
+      } catch (e) { toast('云台控制失败：' + e.message); }
+    }));
+    box.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', async () => {
+      try {
+        if (b.dataset.act === 'snap') {
+          const r = await api('/api/cameras/' + c.id + '/snapshot', { method: 'POST', body: JSON.stringify({}) });
+          toast('已抓拍，画面已更新');
+          const img = box.querySelector('.cam-shot img');
+          if (img && r && r.url) img.src = r.url;
+        } else {
+          const r = await api('/api/cameras/' + c.id + '/stream');
+          toast('取流地址（演示）：' + (r.url || r.note || '未配置'));
+          console.log('[camera stream]', r);
+        }
+      } catch (e) { toast('操作失败：' + e.message); }
+    }));
+  }
+
+  /* =========================================================
+     数据录入页
+     ========================================================= */
+  const IMP_SINGLE = { households: '/api/households', events: '/api/events' };
+
+  function initImportPage() {
+    $('#btnDownloadTpl').addEventListener('click', () => {
+      window.location.href = '/api/template/csv/' + state.impEntity;
+      toast('已开始下载「' + (state.impSchema ? state.impSchema.label : '') + '」模板');
+    });
+    $('#btnCopyHead').addEventListener('click', async () => {
+      try {
+        const d = await api('/api/template/' + state.impEntity);
+        const head = d.csv.split('\n')[0].replace(/^\uFEFF/, '');
+        await copyText(head);
+        toast('表头已复制，粘贴到 Excel 首行即可');
+      } catch (e) { toast('复制失败：' + e.message); }
+    });
+    $('#impSample').addEventListener('click', async () => {
+      try {
+        const d = await api('/api/template/' + state.impEntity);
+        $('#impText').value = d.csv.replace(/^\uFEFF/, '');
+        $('#impResult').innerHTML = '<div class="imp-empty">已填入示例数据，点「校验数据」查看结果</div>';
+        $('#impCommit').disabled = true;
+      } catch (e) { toast(e.message); }
+    });
+    $('#impClear').addEventListener('click', () => {
+      $('#impText').value = '';
+      $('#impResult').innerHTML = '';
+      $('#impCommit').disabled = true;
+    });
+    $('#impValidate').addEventListener('click', () => runImport('validate'));
+    $('#impCommit').addEventListener('click', () => runImport('commit'));
+  }
+
+  function copyText(t) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
+    return new Promise((resolve, reject) => {
+      const ta = document.createElement('textarea');
+      ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); resolve(); } catch (e) { reject(e); }
+      ta.remove();
+    });
+  }
+
+  async function enterImport() {
+    $('#importRoleBadge').textContent = '当前角色：' + (state.role === 'admin' ? '管理员' : '网格员（无导入权限）');
+    $('#importRoleBadge').className = 'badge ' + (state.role === 'admin' ? 'ok' : 'warn');
+    if (!$('#importTabs').children.length) {
+      try {
+        const list = await api('/api/schema');
+        $('#importTabs').innerHTML = list.map((e) =>
+          `<button data-ent="${e.entity}" title="${e.desc || ''}">${e.label}</button>`).join('');
+        $('#importTabs').querySelectorAll('button').forEach((b) => {
+          b.addEventListener('click', () => loadSchema(b.dataset.ent));
+        });
+      } catch (e) { toast('读取字段定义失败：' + e.message); return; }
+    }
+    loadSchema(state.impEntity);
+  }
+
+  async function loadSchema(entity) {
+    state.impEntity = entity;
+    $$('#importTabs button').forEach((b) => b.classList.toggle('on', b.dataset.ent === entity));
+    try {
+      const d = await api('/api/schema/' + entity);
+      state.impSchema = d;
+      renderSchema(d);
+    } catch (e) { toast(e.message); }
+  }
+
+  function renderSchema(d) {
+    $('#schemaDesc').innerHTML = '<b>' + d.label + '</b>：' + (d.desc || '')
+      + '　唯一键：<code>' + d.uniqueKey + '</code>';
+    $('#schemaFields').innerHTML = d.fields.map((f) => `
+      <div class="schema-item">
+        <div class="k">${f.label}${f.required ? '<em>*</em>' : ''}</div>
+        <div class="t">${f.key} · ${f.type}${f.unit ? ' · ' + f.unit : ''}</div>
+        ${f.options ? '<div class="o">可选：' + f.options.join(' / ') + '</div>' : ''}
+        ${f.desc ? '<div class="d">' + f.desc + '</div>' : ''}
+      </div>`).join('');
+    renderImportForm(d);
+  }
+
+  function renderImportForm(d) {
+    const box = $('#impForm');
+    box.innerHTML = d.fields.map((f) => {
+      const wide = f.type === 'textarea' || ['address', 'services', 'content', 'summary', 'note'].indexOf(f.key) >= 0;
+      let input;
+      if (f.options) {
+        input = `<select id="if_${f.key}"><option value="">${f.required ? '请选择' : '（留空）'}</option>`
+          + f.options.map((o) => `<option value="${o}">${o}</option>`).join('') + '</select>';
+      } else if (f.type === 'textarea') {
+        input = `<textarea id="if_${f.key}" placeholder="${(f.sample || '')}"></textarea>`;
+      } else {
+        input = `<input id="if_${f.key}" type="${f.type === 'number' ? 'number' : 'text'}"`
+          + ` placeholder="${(f.sample === 0 || f.sample) ? f.sample : ''}"`
+          + (f.type === 'number' && f.min != null ? ` min="${f.min}"` : '')
+          + (f.type === 'number' && f.max != null ? ` max="${f.max}"` : '') + '>';
+      }
+      return `<div class="f${wide ? ' wide' : ''}">
+        <label>${f.label}${f.required ? '<em>*</em>' : ''}</label>
+        ${input}
+        <span class="tip" id="ift_${f.key}">${f.desc || ''}</span>
+      </div>`;
+    }).join('') + `
+      <div class="fsub">
+        <button class="btn primary" id="impSubmit">提交单条</button>
+        <button class="btn" id="impReset">重置</button>
+        <span style="flex:1"></span>
+        <span class="hint" style="align-self:center">${IMP_SINGLE[state.impEntity] ? '写入 ' + IMP_SINGLE[state.impEntity] : '该类型仅支持批量导入'}</span>
+      </div>`;
+    $('#impReset').addEventListener('click', () => renderImportForm(state.impSchema));
+    $('#impSubmit').addEventListener('click', submitSingle);
+  }
+
+  function readForm() {
+    const raw = {};
+    (state.impSchema ? state.impSchema.fields : []).forEach((f) => {
+      const el = $('#if_' + f.key);
+      if (el) raw[f.key] = el.value.trim();
+    });
+    return raw;
+  }
+
+  async function submitSingle() {
+    const url = IMP_SINGLE[state.impEntity];
+    if (!url) { toast('该类型暂不支持单条直接写入，请改用批量导入'); return; }
+    const raw = readForm();
+    let r;
+    try {
+      r = await api('/api/import/' + state.impEntity, {
+        method: 'POST', body: JSON.stringify({ rows: [raw], mode: 'validate' }),
+      });
+    } catch (e) { toast('校验请求失败：' + e.message); return; }
+    const row = r.results[0];
+    markFormErrors(row);
+    if (!row.ok) { toast('请先修正 ' + row.errors.length + ' 处错误'); return; }
+    try {
+      await api(url, { method: 'POST', body: JSON.stringify(row.value) });
+      toast('已写入：' + (row.value[state.impSchema.uniqueKey] || '新记录'));
+      renderImportForm(state.impSchema);
+      if (state.impEntity === 'households') {
+        try { await reloadHouseholds(); } catch (e) { /* 忽略 */ }
+      }
+    } catch (e) { toast('写入失败：' + e.message); }
+  }
+
+  function markFormErrors(row) {
+    (state.impSchema ? state.impSchema.fields : []).forEach((f) => {
+      const wrap = $('#if_' + f.key);
+      const tip = $('#ift_' + f.key);
+      if (!wrap) return;
+      const err = (row.errors || []).find((e) => e.key === f.key);
+      const warn = (row.warnings || []).find((e) => e.key === f.key);
+      wrap.parentElement.classList.toggle('err', !!err);
+      if (tip) {
+        tip.textContent = err ? err.msg : (warn ? warn.msg : (f.desc || ''));
+        tip.className = 'tip' + (err ? ' bad' : '');
+      }
+    });
+  }
+
+  async function runImport(mode) {
+    const text = $('#impText').value;
+    if (!text.trim()) { toast('请先粘贴数据（首行为表头）'); return; }
+    const btn = mode === 'commit' ? $('#impCommit') : $('#impValidate');
+    btn.disabled = true;
+    try {
+      const r = await api('/api/import/' + state.impEntity, {
+        method: 'POST', body: JSON.stringify({ text, mode }),
+      });
+      state.impRows = r;
+      renderImportResult(r, mode);
+      if (mode === 'commit') {
+        toast('已导入 ' + r.imported + ' 条');
+        $('#impCommit').disabled = true;
+        if (state.impEntity === 'households') {
+          try { await reloadHouseholds(); } catch (e) { /* 忽略 */ }
+        }
+      } else {
+        $('#impCommit').disabled = !(r.valid > 0 && state.role === 'admin');
+      }
+    } catch (e) {
+      $('#impResult').innerHTML = '<div class="imp-empty" style="color:#c9384f">' + e.message + '</div>';
+      toast('校验失败：' + e.message);
+    }
+    if (mode !== 'commit') btn.disabled = false;
+  }
+
+  function renderImportResult(r, mode) {
+    const box = $('#impResult');
+    if (!r || !r.results) { box.innerHTML = ''; return; }
+    const warnCount = r.results.filter((x) => x.warnings && x.warnings.length).length;
+    box.innerHTML = `
+      <div class="imp-summary">
+        <span class="imp-chip">共 ${r.total} 行</span>
+        <span class="imp-chip ok">通过 ${r.valid} 行</span>
+        <span class="imp-chip ${r.invalid ? 'bad' : ''}">异常 ${r.invalid} 行</span>
+        ${warnCount ? `<span class="imp-chip warn">${warnCount} 行有提示</span>` : ''}
+        ${mode === 'commit' ? `<span class="imp-chip ok">已写入 ${r.imported} 条</span>` : ''}
+      </div>
+      ${r.results.map((row) => {
+        const cls = !row.ok ? 'bad' : (row.warnings && row.warnings.length ? 'warn' : 'ok');
+        const key = state.impSchema ? state.impSchema.uniqueKey : '';
+        const title = row.value[key] || '（缺唯一键）';
+        return `<div class="imp-row ${cls}">
+          <div class="rh">
+            <span class="no">第 ${row.line} 行</span>
+            <span>${title}</span>
+            <span class="st">${!row.ok ? '错误' : (row.warnings && row.warnings.length ? '通过（有提示）' : '通过')}</span>
+          </div>
+          ${(row.errors || []).map((e) => `<div class="msg">· ${e.label}：${e.msg}</div>`).join('')}
+          ${(row.warnings || []).map((e) => `<div class="wmsg">· ${e.label}：${e.msg}</div>`).join('')}
+        </div>`;
+      }).join('') || '<div class="imp-empty">没有解析到数据行</div>'}
+    `;
+  }
+
+  /* =========================================================
+     系统接入页
+     ========================================================= */
+  const API_INVENTORY = [
+    ['get', '/api/map/config', '底图服务配置：可用服务、坐标系、当前生效项'],
+    ['get', '/api/cameras/capabilities', '视频监控接入能力清单（协议/功能/算法）'],
+    ['get', '/api/cameras/stats', '设备统计：在线率、协议分布、厂商分布'],
+    ['get', '/api/cameras', '设备列表，支持 status / protocol 过滤'],
+    ['get', '/api/cameras/:id', '设备详情（管理员可见取流地址）'],
+    ['get', '/api/cameras/:id/snapshot', '实时抓图（演示返回占位图）'],
+    ['get', '/api/cameras/:id/stream', '取流地址（真实环境返回播放地址）'],
+    ['post', '/api/cameras/:id/ptz', '云台控制：up/down/left/right/zoomIn/zoomOut/reset/stop'],
+    ['post', '/api/cameras/:id/snapshot', '触发抓拍'],
+    ['post', '/api/cameras/:id/record', '录像控制：start / stop'],
+    ['post', '/api/cameras/heartbeat', '设备心跳上报'],
+    ['post', '/api/cameras/device', '新增设备（管理员）'],
+    ['put', '/api/cameras/device/:id', '修改设备（管理员）'],
+    ['delete', '/api/cameras/device/:id', '删除设备（管理员）'],
+    ['get', '/api/schema', '可录入数据类型清单'],
+    ['get', '/api/schema/:entity', '字段定义（渲染表单与校验）'],
+    ['get', '/api/template/csv/:entity', '下载 CSV 录入模板（含 BOM）'],
+    ['get', '/api/template/:entity', '模板元数据 + CSV 文本'],
+    ['post', '/api/import/:entity', '批量导入，mode=validate 校验 / commit 写入'],
+  ];
+
+  function initIntegrationPage() {
+    $('#camDevList').addEventListener('click', (e) => {
+      const card = e.target.closest('.cam-dev');
+      if (card) openCameraOnMap(card.dataset.id);
+    });
+  }
+
+  async function openCameraOnMap(id) {
+    goPage('households');
+    toast('已定位到摄像头：' + id);
+    await initHouseholds();
+    if (!hhMap) return;
+    const c = (state.data.cameras || []).find((x) => x.id === id);
+    if (!c) return;
+    hhMap.setView(hp(c.lat, c.lng), 18, { animate: true });
+    setTimeout(() => openCameraPanel(id), 420);
+  }
+
+  async function enterIntegration() {
+    renderMapProviders();
+    try {
+      const [caps, stats, list] = await Promise.all([
+        api('/api/cameras/capabilities'), api('/api/cameras/stats'), api('/api/cameras'),
+      ]);
+      state.data.cameras = list;
+      $('#camStatsLine').textContent = `共 ${stats.total} 路 · 在线 ${stats.online} · 离线 ${stats.offline + (stats.fault || 0)} · 在线率 ${stats.onlineRate}% · 云台 ${stats.ptzCount} 路 · AI ${stats.aiCount} 路`;
+      $('#capList').innerHTML = `
+        ${caps.protocols.map((p) => `
+          <div class="cap-card">
+            <div class="ch"><i class="${p.ptz ? '' : 'stub'}"></i>${p.name}</div>
+            <div class="cd">${p.desc}</div>
+            <div class="cm">取流方式：${p.stream}${p.ptz ? ' · 支持云台' : ''}</div>
+          </div>`).join('')}
+        <div class="cap-card">
+          <div class="ch"><i></i>已封装功能</div>
+          <div class="cd">${caps.features.join('、')}</div>
+        </div>
+        <div class="cap-card">
+          <div class="ch"><i></i>AI 算法</div>
+          <div class="cd">${caps.aiAlgorithms.join('、')}</div>
+        </div>
+        <div class="cap-card">
+          <div class="ch"><i class="stub"></i>接入说明</div>
+          <div class="cd">${caps.note}</div>
+        </div>`;
+      $('#camDevList').innerHTML = list.map((c) => `
+        <div class="cam-dev" data-id="${c.id}">
+          <div class="thumb">
+            <img src="/api/cameras/${c.id}/snapshot?t=${Date.now()}" alt="${c.name}" loading="lazy">
+            <span class="st ${c.status === 'online' ? 'on' : 'off'}">${c.status === 'online' ? '在线' : (c.status === 'fault' ? '故障' : '离线')}</span>
+          </div>
+          <div class="db">
+            <b>${c.name}</b>
+            <span class="m">${c.id} · ${(c.protocol || '').toUpperCase()} · ${c.resolution || '-'}</span>
+            <span class="m">${c.vendor || '-'} · ${c.kind || '-'}</span>
+            <span class="t">${(c.aiTags || []).map((a) => `<i>${a}</i>`).join('')}</span>
+          </div>
+        </div>`).join('');
+    } catch (e) { toast('读取监控能力失败：' + e.message); }
+
+    $('#apiList').innerHTML = API_INVENTORY.map(([m, p, d]) => `
+      <div class="api-item">
+        <div class="ah"><span class="mtd ${m}">${m.toUpperCase()}</span><span class="ap">${p}</span></div>
+        <div class="ad">${d}</div>
+      </div>`).join('');
+  }
+
+  function renderMapProviders() {
+    const cfg = MapKit.config();
+    const list = MapKit.providers(true);
+    const cur = MapKit.current();
+    $('#mapProvList').innerHTML = list.map((p) => {
+      const ok = p.enabled !== false && p.available !== false;
+      const isCur = cur && cur.id === p.id;
+      return `<div class="prov-card ${isCur ? 'active' : ''} ${ok ? '' : 'disabled'}">
+        <div class="ph">
+          <b>${p.name}</b>
+          <span class="pill ${ok ? 'on' : 'off'}">${ok ? (isCur ? '当前生效' : '可用') : (p.needKey && !p.keyConfigured ? '缺少 key' : '未启用')}</span>
+        </div>
+        <div class="pu">${p.url}</div>
+        <div class="pd">${p.desc || ''}</div>
+        <div class="pm">
+          <i>分组：${p.group === 'satellite' ? '影像' : '矢量'}</i>
+          <i>坐标系：${(p.crs || 'wgs84').toUpperCase()}</i>
+          <i>${p.needKey ? '需密钥' : '免密钥'}</i>
+          ${p.annoUrl ? '<i>含注记层</i>' : ''}
+        </div>
+        ${ok && !isCur ? `<div class="pact"><button data-prov="${p.id}">切到该底图</button></div>` : ''}
+      </div>`;
+    }).join('');
+    $('#mapProvList').querySelectorAll('[data-prov]').forEach((b) => {
+      b.addEventListener('click', () => {
+        goPage('households');
+        setTimeout(() => switchBase(b.dataset.prov), 300);
+      });
+    });
+    const env = (cfg && cfg.env) || {};
+    $('#mapEnvBox').innerHTML = `<div class="et">接入方式</div>
+      <div class="er"><span>1. 改配置文件</span><span>编辑 <code>data/map-providers.json</code>，新增/启用一项底图服务即可，无需改前端代码</span></div>
+      <div class="er"><span>2. 注入密钥</span><span>${Object.keys(env).map((k) => `<code>${k}</code>：${env[k]}`).join('　') || '无'}</span></div>
+      <div class="er"><span>3. 坐标系</span><span>业务点位统一按 WGS84 存储，底图为 GCJ02 时前端自动纠偏，切换底图不会导致点位偏移</span></div>`;
+  }
+
   /* ---------------- 样式补丁（气泡动画/提示框） ---------------- */
   const stylePatch = document.createElement('style');
   stylePatch.textContent = `
@@ -1075,8 +1573,13 @@
   /* ---------------- 启动 ---------------- */
   (async function boot() {
     try {
+      await MapKit.loadConfig();          // 底图服务配置（服务端可插拔）
+      paintMapCorners();
+      renderBaseSelect();
       await initOverview();
       initQA();
+      initImportPage();
+      initIntegrationPage();
       $('#adminRoleBadge').textContent = '当前角色：管理员';
       goPage('overview');
       await api('/api/health');

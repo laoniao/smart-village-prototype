@@ -162,7 +162,99 @@ async function req(url, opts = {}) {
     const patchDeny = await req('/api/households/A-001', { method: 'PATCH', headers: { 'x-role': 'grid' }, body: JSON.stringify({ members: 3 }) });
     check('网格员维护农户被拒绝', patchDeny.json.code === 403);
 
-    /* 13. 测试数据还原 */
+    /* 13. 地图接入接口 */
+    const mapCfg = await req('/api/map/config');
+    check('地图服务配置 /api/map/config', mapCfg.json.code === 0 && mapCfg.json.data.providers.length >= 4,
+      `${mapCfg.json.data.providers.length} 个底图服务，当前 ${mapCfg.json.data.current}`);
+    check('底图坐标系说明', !!mapCfg.json.data.crs && mapCfg.json.data.crs.logical === 'wgs84', '逻辑坐标 WGS84');
+    check('未配置 key 的天地图标记为不可用',
+      mapCfg.json.data.providers.filter((p) => p.needKey).every((p) => p.available === false));
+
+    /* 14. 摄像头能力接口 */
+    const caps = await req('/api/cameras/capabilities');
+    check('摄像头能力清单', caps.json.data.protocols.length === 5 && caps.json.data.features.length >= 5);
+    const camStats = await req('/api/cameras/stats');
+    check('摄像头统计', camStats.json.data.total === 12 && camStats.json.data.onlineRate > 0,
+      `在线率 ${camStats.json.data.onlineRate}%`);
+    const camOne = await req('/api/cameras/CAM-01', { headers: { 'x-role': 'admin' } });
+    check('摄像头详情：管理员可见真实取流地址',
+      camOne.json.data.streamUrl === '/api/cameras/CAM-01/stream' && String(camOne.json.data.streamUrlFull).indexOf('rtsp') === 0);
+    const camOneGrid = await req('/api/cameras/CAM-01', { headers: { 'x-role': 'grid' } });
+    check('摄像头详情：网格员不暴露真实取流地址', camOneGrid.json.data.streamUrlFull === '(管理员可见)');
+    const snap = await fetch(`${BASE}/api/cameras/CAM-01/snapshot`);
+    check('抓图接口返回图片', snap.ok && /svg/.test(snap.headers.get('content-type') || ''), snap.headers.get('content-type'));
+    const offlineId = (await req('/api/cameras?status=offline')).json.data[0].id;
+    const snapOffline = await req(`/api/cameras/${offlineId}/snapshot`, { method: 'POST' });
+    check('离线设备抓拍被拒绝', snapOffline.json.code === 503, '设备 ' + offlineId + '：' + snapOffline.json.message);
+    const ptzDeny = await req('/api/cameras/CAM-01/ptz', { method: 'POST', headers: { 'x-role': 'grid' }, body: JSON.stringify({ action: 'left' }) });
+    check('网格员云台控制被拒绝', ptzDeny.json.code === 403);
+    const ptzOk = await req('/api/cameras/CAM-01/ptz', { method: 'POST', headers: { 'x-role': 'admin' }, body: JSON.stringify({ action: 'left' }) });
+    check('管理员云台控制', ptzOk.json.code === 0 && (ptzOk.json.data || {}).direction != null, '方位 ' + (ptzOk.json.data || {}).direction);
+    const ptzBad = await req('/api/cameras/CAM-01/ptz', { method: 'POST', headers: { 'x-role': 'admin' }, body: JSON.stringify({ action: 'fly' }) });
+    check('非法云台指令被拒绝', ptzBad.json.code === 400);
+    const rec = await req('/api/cameras/CAM-01/record', { method: 'POST', headers: { 'x-role': 'admin' }, body: JSON.stringify({ action: 'start' }) });
+    check('录像控制接口', rec.json.code === 0);
+    const hb = await req('/api/cameras/heartbeat', { method: 'POST', body: JSON.stringify({ id: 'CAM-01', status: 'online' }) });
+    check('设备心跳上报', hb.json.code === 0);
+
+    /* 15. 录入模板与批量导入 */
+    const schemaList = await req('/api/schema');
+    check('可录入类型清单', schemaList.json.data.length === 5, schemaList.json.data.map((x) => x.label).join('/'));
+    const schemaOne = await req('/api/schema/households');
+    check('字段定义接口', schemaOne.json.data.fields.length >= 10 && !!schemaOne.json.data.uniqueKey);
+    const tpl = await fetch(`${BASE}/api/template/csv/households`);
+    const tplText = await tpl.text();
+    // fetch.text() 会按规范去掉 BOM，这里校验表头位置 + 下载响应头
+    check('CSV 模板下载', tpl.ok && tplText.indexOf('户号') === 0 && tplText.split('\n').length >= 3
+      && /attachment/.test(tpl.headers.get('content-disposition') || ''), '表头 + 2 行示例 + 下载响应头');
+    const tplMeta = await req('/api/template/cameras');
+    check('模板元数据接口', !!tplMeta.json.data.csv && tplMeta.json.data.fields.length > 0);
+
+    for (const e of schemaList.json.data) {
+      const meta = await req('/api/template/' + e.entity);
+      const v = await req(`/api/import/${e.entity}`, {
+        method: 'POST', headers: { 'x-role': 'admin' },
+        body: JSON.stringify({ text: meta.json.data.csv, mode: 'validate' }),
+      });
+      check(`模板示例自校验 · ${e.label}`, v.json.data.valid === v.json.data.total,
+        `${v.json.data.valid}/${v.json.data.total} 通过`);
+    }
+
+    const bad = await req('/api/import/households', {
+      method: 'POST', headers: { 'x-role': 'admin' },
+      body: JSON.stringify({ text: '户号,户主姓名,所属组别,门牌地址,家庭成员数,房屋状态\nB-902,,,,,', mode: 'validate' }),
+    });
+    check('必填项缺失被拦截', bad.json.data.invalid === 1 && bad.json.data.valid === 0,
+      ((bad.json.data.results[0].errors || [])[0] || {}).msg);
+    const badNum = await req('/api/import/households', {
+      method: 'POST', headers: { 'x-role': 'admin' },
+      body: JSON.stringify({ text: '户号,户主姓名,所属组别,门牌地址,家庭成员数,房屋状态,纬度\nB-901,王某,一组,示范村一组901号,3,正常,99', mode: 'validate' }),
+    });
+    check('越界纬度被拦截', badNum.json.data.invalid === 1, ((badNum.json.data.results[0].errors || [])[0] || {}).msg);
+    const dup = await req('/api/import/households', {
+      method: 'POST', headers: { 'x-role': 'admin' },
+      body: JSON.stringify({ text: '户号,户主姓名,所属组别,门牌地址,家庭成员数,房屋状态\nA-001,李某,一组,示范村一组1号,3,正常', mode: 'validate' }),
+    });
+    check('已存在的户号被拦截', dup.json.data.invalid === 1, ((dup.json.data.results[0].errors || [])[0] || {}).msg);
+    const impDeny = await req('/api/import/points', {
+      method: 'POST', headers: { 'x-role': 'grid' },
+      body: JSON.stringify({ text: '网点名称,网点类型,地址,纬度,经度\n测试点,便民服务,测试地址,30.235,120.115', mode: 'commit' }),
+    });
+    check('网格员批量导入被拒绝', impDeny.json.code === 403);
+
+    const before = (await req('/api/households?size=1')).json.data.total;
+    const commit = await req('/api/import/households', {
+      method: 'POST', headers: { 'x-role': 'admin' },
+      body: JSON.stringify({ text: '户号,户主姓名,所属组别,门牌地址,家庭成员数,房屋状态,纬度,经度\nZ-901,测试户,一组,示范村一组901号,3,正常,30.2351,120.1157', mode: 'commit' }),
+    });
+    check('批量导入写入', commit.json.data.imported === 1);
+    const after = (await req('/api/households?size=1')).json.data.total;
+    check('导入后总数 +1', after === before + 1, `${before} → ${after}`);
+    const restore = await req('/api/admin/restore-households', { method: 'POST', headers: { 'x-role': 'admin' } });
+    const back = (await req('/api/households?size=1')).json.data.total;
+    check('导入数据可一键还原', restore.json.code === 0 && back === before, `${after} → ${back}`);
+
+    /* 16. 测试数据还原 */
     const reset = await req('/api/admin/reset', { method: 'POST' });
     check('清空测试期间产生的运行数据', reset.json.code === 0 && reset.json.data.reset === true);
   } catch (e) {

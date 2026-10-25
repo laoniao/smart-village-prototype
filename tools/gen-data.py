@@ -106,13 +106,51 @@ for i, (n, t, s, addr, hours, tel) in enumerate(sp_defs):
                            "address": addr, "hours": hours, "phone": tel, "lat": lat, "lng": lng})
 
 # ---------- 摄像头 ----------
-cam_defs = ["村口主路东", "村口主路西", "文化广场", "便民服务站", "小学路口", "河道北岸",
-            "三组路口", "五组桥头", "养老中心", "快递驿站", "停车场", "茶山入口"]
+# (名称, 点位类型, 厂商, 接入协议, 分辨率, 是否球机, AI 能力, 安装日期)
+cam_defs = [
+    ("村口主路东", "主要出入口", "海康威视", "gb28181", "2560×1440", True, ["车辆识别", "人员聚集"], "2025-03-12"),
+    ("村口主路西", "主要出入口", "海康威视", "gb28181", "2560×1440", True, ["车辆识别"], "2025-03-12"),
+    ("文化广场", "公共活动", "大华股份", "rtsp", "1920×1080", True, ["人员聚集", "越界检测"], "2025-05-08"),
+    ("便民服务站", "公共服务", "大华股份", "rtsp", "1920×1080", False, [], "2025-05-08"),
+    ("小学路口", "重点路段", "宇视科技", "gb28181", "2560×1440", True, ["人员聚集"], "2025-09-01"),
+    ("河道北岸", "水域防汛", "海康威视", "hls", "1920×1080", False, ["水位识别", "越界检测"], "2025-06-20"),
+    ("三组路口", "村组路口", "天地伟业", "rtsp", "1920×1080", False, [], "2025-07-15"),
+    ("五组桥头", "桥梁涵洞", "天地伟业", "rtsp", "1920×1080", False, ["越界检测"], "2025-07-15"),
+    ("养老中心", "重点关怀", "宇视科技", "rtsp", "1920×1080", False, ["跌倒检测"], "2025-10-09"),
+    ("快递驿站", "生活服务", "海康威视", "gb28181", "1920×1080", False, [], "2025-08-21"),
+    ("停车场", "公共停车场", "大华股份", "rtsp", "2560×1440", True, ["车辆识别"], "2025-08-21"),
+    ("茶山入口", "农林防火", "海康威视", "hls", "2560×1440", True, ["烟火检测", "越界检测"], "2026-01-06"),
+]
 cameras = []
-for i, n in enumerate(cam_defs):
+for i, (n, kind, vendor, protocol, res, ptz, ai, inst) in enumerate(cam_defs):
     lat, lng = near(i * 33, 0.00022 * math.cos(i), 0.00022 * math.sin(i))
-    cameras.append({"id": "CAM-%02d" % (i + 1), "name": n, "lat": lat, "lng": lng,
-                    "status": "online" if i != 9 else "offline", "channel": "CH%02d" % (i + 1)})
+    seq = i + 1
+    offline = seq == 10  # 第 10 路离线，用于演示设备巡检
+    cameras.append({
+        "id": "CAM-%02d" % seq,
+        "name": n,
+        "deviceId": "3305210000132000%04d" % seq,     # GB/T 28181 20 位设备编码（演示）
+        "channel": "CH%02d" % seq,
+        "vendor": vendor,
+        "kind": kind,
+        "protocol": protocol,
+        "streamUrl": ("rtsp://10.18.%d.%d:554/Streaming/Channels/%d01" % (10 + seq // 8, 20 + seq, seq))
+                     if protocol != "hls"
+                     else ("http://10.18.%d.%d/hls/%d/index.m3u8" % (10 + seq // 8, 20 + seq, seq)),
+        "snapUrl": "/api/cameras/CAM-%02d/snapshot" % seq,
+        "resolution": res,
+        "ptz": ptz,
+        "direction": (seq * 37) % 360,                 # 安装方向角，用于地图绘制视场扇形
+        "fov": 75 if ptz else 55,                      # 视场角（度）
+        "radius": 90 if ptz else 55,                   # 可视半径（米）
+        "aiTags": ai,
+        "installAt": inst,
+        "lat": lat,
+        "lng": lng,
+        "status": "offline" if offline else "online",
+        "storageDays": 30,
+        "note": "演示设备，不接入真实视频流" if offline else "",
+    })
 
 # ---------- 事件 ----------
 events = [

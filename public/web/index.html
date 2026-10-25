@@ -7,6 +7,7 @@
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="./style.css">
+<link rel="stylesheet" href="./tech.css">
 </head>
 <body>
 <div class="shell">
@@ -64,9 +65,17 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.6 9.6 0 0 1-3.8-.8L4 20l1-3.6A8.3 8.3 0 0 1 3.6 11.5 8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.8.8c0 1.7-2.4 2.5-2.4 2.5"/><path d="M12 16.3h.01"/></svg>
         政策智能问答
       </button>
+      <button class="nav-item" data-page="import">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10"/><path d="m8.5 9.5 3.5 3.5 3.5-3.5"/><path d="M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/></svg>
+        数据录入
+      </button>
       <button class="nav-item" data-page="admin">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/><path d="M4 11.5v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
         基础数据管理
+      </button>
+      <button class="nav-item" data-page="integration">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h4M7 13h7M7 17h5"/><circle cx="17.5" cy="9" r="1.6"/></svg>
+        系统接入
       </button>
     </nav>
     <div class="side-art">
@@ -235,7 +244,9 @@
           <div class="map-base-switch">
             <button class="on" data-base="satellite">影像</button>
             <button data-base="vector">矢量</button>
+            <select id="baseProvider" title="底图服务"></select>
           </div>
+          <div class="cam-panel hidden" id="camPanel"></div>
         </div>
 
         <aside class="drawer hidden" id="detailDrawer"></aside>
@@ -320,6 +331,106 @@
             <span style="flex:1"></span>
             <span id="adminPageInfo"></span>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 数据录入 ================= -->
+    <section class="page hidden" id="page-import">
+      <div class="page-head">
+        <h2>数据录入</h2>
+        <span class="hint">下载模板 → 填写或粘贴 → 校验 → 导入；也支持右侧表单单条录入</span>
+        <span class="spacer"></span>
+        <span class="badge ok" id="importRoleBadge">当前角色：管理员</span>
+      </div>
+
+      <div class="card">
+        <div class="card-head" style="padding-bottom:10px">
+          <div class="tabs" id="importTabs"></div>
+          <span class="spacer" style="flex:1"></span>
+          <button class="btn" id="btnDownloadTpl">下载 CSV 模板</button>
+          <button class="btn" id="btnCopyHead">复制表头</button>
+        </div>
+        <div class="card-body" style="padding-top:6px">
+          <div class="schema-desc" id="schemaDesc"></div>
+          <div class="schema-grid" id="schemaFields"></div>
+        </div>
+      </div>
+
+      <div class="imp-grid">
+        <div class="card">
+          <div class="card-head">
+            <b>批量粘贴导入</b>
+            <span class="spacer"></span>
+            <span class="hint">支持 CSV / TSV / 分号分隔，可直接粘贴 Excel 内容</span>
+          </div>
+          <div class="card-body">
+            <textarea id="impText" class="imp-textarea" spellcheck="false" placeholder="从 Excel 复制后粘贴到此处，首行为表头。例如：&#10;户号	户主	门牌	家庭人数	房屋状态	纬度	经度&#10;A-901	王**	示范村 901 号	3	正常	30.2361	120.1158"></textarea>
+            <div class="imp-actions">
+              <button class="btn" id="impSample">填入示例</button>
+              <button class="btn" id="impClear">清空</button>
+              <button class="btn primary" id="impValidate">校验数据</button>
+              <button class="btn ok" id="impCommit" disabled>确认导入</button>
+            </div>
+            <div class="imp-result" id="impResult"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <b>单条录入</b>
+            <span class="spacer"></span>
+            <span class="hint" id="impFormHint">校验通过后提交</span>
+          </div>
+          <div class="card-body">
+            <div class="imp-form" id="impForm"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 系统接入 ================= -->
+    <section class="page hidden" id="page-integration">
+      <div class="page-head">
+        <h2>系统接入</h2>
+        <span class="hint">地图底图服务与视频监控能力的接入方式、运行态与接口清单</span>
+        <span class="spacer"></span>
+        <span class="badge ok" id="integStatus">运行中</span>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <b>地图服务接入</b>
+          <span class="spacer"></span>
+          <span class="hint">服务端 data/map-providers.json 描述，支持环境变量注入密钥</span>
+        </div>
+        <div class="card-body">
+          <div class="prov-grid" id="mapProvList"></div>
+          <div class="env-box" id="mapEnvBox"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="card-head">
+          <b>视频监控能力</b>
+          <span class="spacer"></span>
+          <span class="hint" id="camStatsLine"></span>
+        </div>
+        <div class="card-body">
+          <div class="cap-grid" id="capList"></div>
+          <div class="sub-title">设备清单（点击可预览抓图 / 云台控制）</div>
+          <div class="cam-dev-grid" id="camDevList"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="card-head">
+          <b>接口清单</b>
+          <span class="spacer"></span>
+          <span class="hint">全部为本地演示接口，不含真实业务数据</span>
+        </div>
+        <div class="card-body">
+          <div class="api-list" id="apiList"></div>
         </div>
       </div>
     </section>
